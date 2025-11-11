@@ -1,0 +1,13 @@
+name: deeplearning
+channels:
+  - defaults
+dependencies:
+  - python==3.10.18
+  - numpy
+  - pandas
+  - scikit-learn
+  - matplotlib
+  - keras
+  - tensorflow
+  - pandas-stubs==2.2.3.250308
+prefix: /Users/frank/miniconda3/envs/deeplearning
