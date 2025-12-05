@@ -761,7 +761,7 @@ if __name__ == '__main__':
     summary(model, input_size=(3,32,32), batch_size=1)
 ```
 
-<img src='assets/1734675868165.png' style="zoom:75%;" />
+![alt text](./assets/conv_summary.png)
 
 ### 编写训练函数
 
