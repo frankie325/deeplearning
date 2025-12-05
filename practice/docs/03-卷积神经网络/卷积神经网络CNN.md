@@ -694,7 +694,7 @@ if __name__ == '__main__':
 
 搭建的CNN网络结构如下:
 
-<img src='assets/1663596553400.png' style="zoom:75%;" />
+![alt text](./assets/cnn.png)
 
 我们要搭建的网络结构如下:
 
