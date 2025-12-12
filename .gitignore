@@ -96,5 +96,5 @@ db.sqlite3
 __pypackages__/
 
 # Dataset artifacts
-practice/CNN/data/cifar-10-python.tar.gz
-practice/CNN/data/cifar-10-batches-py/
+practice/**/data/**
+practice/**/data/**
