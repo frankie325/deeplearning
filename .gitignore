@@ -98,3 +98,4 @@ __pypackages__/
 # Dataset artifacts
 practice/**/data/**
 practice/**/data/**
+practice/**/model/**
