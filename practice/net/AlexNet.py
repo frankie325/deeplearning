@@ -6,13 +6,13 @@ from torchsummary import summary
 AlexNet模型：由八层网络层组成的，包括5层卷积层和3层全连接层
 
 输入层：输入层是一个3通道的227x227的图像
-卷积层1：卷积层1是一个96通道的11x11的卷积核，步长为4，填充为0，输出特征图为96x55x55
+卷积层1：卷积层1是一个96个3x11x11的卷积核，步长为4，填充为0，输出特征图为96x55x55
 池化层1：池化层1是一个3x3的最大池化核，步长为2，填充为0，输出特征图为96x27x27
-卷积层2：卷积层2是一个256通道的5x5的卷积核，步长为1，填充为2，输出特征图为256x27x27
+卷积层2：卷积层2是一个256个96x5x5的卷积核，步长为1，填充为2，输出特征图为256x27x27
 池化层2：池化层2是一个3x3的最大池化核，步长为2，填充为0，输出特征图为256x13x13
-卷积层3：卷积层3是一个384通道的3x3的卷积核，步长为1，填充为1，输出特征图为384x13x13
-卷积层4：卷积层4是一个384通道的3x3的卷积核，步长为1，填充为1，输出特征图为384x13x13
-卷积层5：卷积层5是一个256通道的3x3的卷积核，步长为1，填充为1，输出特征图为256x13x13
+卷积层3：卷积层3是一个384个256x3x3的卷积核，步长为1，填充为1，输出特征图为384x13x13
+卷积层4：卷积层4是一个384个384x3x3的卷积核，步长为1，填充为1，输出特征图为384x13x13
+卷积层5：卷积层5是一个256个384x3x3的卷积核，步长为1，填充为1，输出特征图为256x13x13
 池化层3：池化层3是一个3x3的最大池化核，步长为2，填充为0，输出特征图为256x6x6
 全连接层1：全连接层1是一个4096个神经元的全连接层，使用ReLU激活函数
 全连接层2：全连接层2是一个4096个神经元的全连接层，使用ReLU激活函数
@@ -40,20 +40,22 @@ class AlexNet(nn.Module):
 
         # 全连接层
         num = 6 * 6 * 256
-        # self.fc1 = nn.Linear(num, 4096)
-        # self.fc2 = nn.Linear(4096, 4096)
+        self.fc1 = nn.Linear(num, 4096)
+        self.fc2 = nn.Linear(4096, 4096)
         # self.fc3 = nn.Linear(4096, 1000)
+        self.fc3 = nn.Linear(4096, 10)
 
-        self.fc1 = nn.Linear(num, 256)
-        self.fc2 = nn.Linear(256, 128)
-        self.fc3 = nn.Linear(128, 10)
+        # 可能会有欠拟合，将全连接层的参数调小去训练
+        # self.fc1 = nn.Linear(num, 256)
+        # self.fc2 = nn.Linear(256, 128)
+        # self.fc3 = nn.Linear(128, 10)
         self.dropout = nn.Dropout(p=0.5)
 
         # 初始化参数，防止梯度消失或爆炸
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
-                nn.init.constant_(m.bias, 0)
+                nn.init.constant_(m.bias, 0) # 偏置初始化为0
             elif isinstance(m, nn.Linear):
                 nn.init.normal_(m.weight, 0, 0.01)
                 nn.init.constant_(m.bias, 0)
