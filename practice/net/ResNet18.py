@@ -1,4 +1,3 @@
-from turtle import forward
 import torch as torch
 import torch.nn as nn
 from torchsummary import summary
@@ -8,7 +7,7 @@ ResNet模型：
 输入层：输入图像为3x224x224
 
 块1：
-    卷积层1：64个64x7x7的卷积核，步长为2，填充为3，输出特征图为64x112x112
+    卷积层1：64个3x7x7的卷积核，步长为2，填充为3，输出特征图为64x112x112
     批量归一化层：对64个特征图进行归一化
     ReLU激活函数：对64个特征图进行激活
     最大池化层：3x3的最大池化核，步长为2，填充为1，输出特征图为64x56x56
