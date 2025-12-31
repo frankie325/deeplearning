@@ -36,11 +36,11 @@ C3D模型的结构如下：
 输入展平：512 * 1 * 4 * 4 = 8192
 全连接层1：8192 -> 4096
 全连接层2：4096 -> 4096
-全连接层3：4096 -> num_class
+全连接层3：4096 -> num_classes
 """
 
 class C3D(nn.Module):
-    def __init__(self, num_class):
+    def __init__(self, num_classes):
         super().__init__()
         self.conv1 = nn.Conv3d(in_channels=3, out_channels=64, kernel_size=(3,3,3), padding=(1,1,1), stride=(1,1,1))
         self.pool1 = nn.MaxPool3d(kernel_size=(1,2,2), stride=(1,2,2))
@@ -62,7 +62,7 @@ class C3D(nn.Module):
 
         self.fc1 = nn.Linear(512 * 1 * 4 * 4, 4096)
         self.fc2 = nn.Linear(4096, 4096)
-        self.fc3 = nn.Linear(4096, num_class)
+        self.fc3 = nn.Linear(4096, num_classes)
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(0.5)
 
@@ -102,7 +102,7 @@ class C3D(nn.Module):
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = C3D(num_class=101).to(device)
+    model = C3D(num_classes=101).to(device)
     summary(model, (3, 16, 112, 112), batch_size=8)
 
 """
