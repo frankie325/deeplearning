@@ -53,10 +53,13 @@ COLORS = [
     (192, 192, 192),
 ]
 
-# img_path = "D:\my code\yolo_data\VOC2012\JPEGImages"
-# annotations_path = "D:\my code\yolo_data\VOC2012\Annotations"
-img_path = "/Users/frank/code/ai/yolo_data/VOC2012/JPEGImages"
-annotations_path = "/Users/frank/code/ai/yolo_data/VOC2012/Annotations"
+img_path = "D:\my code\yolo_data\VOC2012\JPEGImages"
+annotations_path = "D:\my code\yolo_data\VOC2012\Annotations"
+# img_path = "/Users/frank/code/ai/yolo_data/VOC2012/JPEGImages"
+# annotations_path = "/Users/frank/code/ai/yolo_data/VOC2012/Annotations"
+S = 7
+IMAGE_SIZE = 448
+GRID_CELL_SIZE = IMAGE_SIZE / S
 
 
 def random_hsv(img):
@@ -97,7 +100,7 @@ def augment_data(img, boxes):
     # 获取图像的高和宽
     h, w = img.shape[:2]
     # 目标尺寸为448x448
-    target_size = 448
+    target_size = IMAGE_SIZE
 
     # 计算缩放比例，取宽和高中缩放比例较小的那个，以保证图像能完整放入目标尺寸
     scale = min(target_size / w, target_size / h)
@@ -154,7 +157,7 @@ def resize_data(img, boxes):
     # 获取图像的高和宽
     h, w = img.shape[:2]
     # 目标尺寸为448x448
-    target_size = 448
+    target_size = IMAGE_SIZE
 
     # 直接resize图像到448x448
     img = cv2.resize(img, (target_size, target_size), interpolation=cv2.INTER_LINEAR)
@@ -224,17 +227,59 @@ def loadData():
         break
 
 
+# 计算两个矩形框的交并比（IOU）
+# https://zhuanlan.zhihu.com/p/436801032
+def IOU(box1, box2, grid_i, grid_j):
+    # grid_i, grid_j 是当前grid cell的索引
+    # box1, box2 是两个边界框的坐标，格式为(x, y, w, h)
+    box1_x, box1_y, box1_w, box1_h = box1
+    box2_x, box2_y, box2_w, box2_h = box2
+    w_grid = GRID_CELL_SIZE
+    h_grid = GRID_CELL_SIZE
+
+    # 复原出边界框的坐标
+    # 还原中心点坐标 - 还原宽度的一半
+    x1_min = (box1_x + grid_i) * w_grid - box1_w * IMAGE_SIZE / 2  # 边界框左上角的 x 坐标
+    y1_min = (box1_y + grid_j) * h_grid - box1_h * IMAGE_SIZE / 2  # 边界框左上角的 y 坐标
+    x1_max = (box1_x + grid_i) * w_grid + box1_w * IMAGE_SIZE / 2  # 边界框右下角的 x 坐标
+    y1_max = (box1_y + grid_j) * h_grid + box1_h * IMAGE_SIZE / 2  # 边界框右下角的 y 坐标
+    # print(x1_min, y1_min, x1_max, y1_max)
+    x2_min = (box2_x + grid_i) * w_grid - box2_w * IMAGE_SIZE / 2  # 边界框左上角的 x 坐标
+    y2_min = (box2_y + grid_j) * h_grid - box2_h * IMAGE_SIZE / 2  # 边界框左上角的 y 坐标   
+    x2_max = (box2_x + grid_i) * w_grid + box2_w * IMAGE_SIZE / 2  # 边界框右下角的 x 坐标
+    y2_max = (box2_y + grid_j) * h_grid + box2_h * IMAGE_SIZE / 2  # 边界框右下角的 y 坐标
+
+    # 计算两个矩形面积
+    area1 = (x1_max - x1_min) * (y1_max - y1_min)
+    area2 = (x2_max - x2_min) * (y2_max - y2_min)
+
+    # 计算交集面积
+    x_inter_min = max(x1_min, x2_min)  # 交集的左上角x坐标
+    y_inter_min = max(y1_min, y2_min)  # 交集的左上角y坐标
+    x_inter_max = min(x1_max, x2_max)  # 交集的右下角x坐标
+    y_inter_max = min(y1_max, y2_max)  # 交集的右下角y坐标
+    inter_area = max(0, x_inter_max - x_inter_min) * max(0, y_inter_max - y_inter_min)
+
+    # 计算并集面积：两个矩形框的面积之和减去交集面积
+    union_area = area1 + area2 - inter_area
+
+    # 计算IOU
+    iou = inter_area / union_area if union_area > 0 else 0.0
+
+    return iou
+
+
 class VOCDataset(Dataset):
     def __init__(self, train=True):
-        self.size = 448  # 图像转换为448的尺寸
+        self.size = IMAGE_SIZE  # 图像转换为448的尺寸
         list = os.listdir(img_path)
         # 按照文件名排序，确保数据是有序的，每次划分数据都是一样的
         list = sorted(list)
         # 划分训练集和测试集
         if train:
-            self.images = list[int(len(list) * 0.8):]
+            self.images = list[: int(len(list) * 0.8)]
         else:
-            self.images = list[:int(len(list) * 0.8)]
+            self.images = list[int(len(list) * 0.8) :]
 
     def __getitem__(self, index):
         img_name = self.images[index]
@@ -253,10 +298,10 @@ class VOCDataset(Dataset):
             if class_name not in ALL_CLASS:
                 continue
             bbox = object.find("bndbox")
-            xmin = int(bbox.findtext("xmin"))
-            ymin = int(bbox.findtext("ymin"))
-            xmax = int(bbox.findtext("xmax"))
-            ymax = int(bbox.findtext("ymax"))
+            xmin = int(bbox.findtext("xmin"))  # 边界框左上角的 x 坐标
+            ymin = int(bbox.findtext("ymin"))  # 边界框左上角的 y 坐标
+            xmax = int(bbox.findtext("xmax"))  # 边界框右下角的 x 坐标
+            ymax = int(bbox.findtext("ymax"))  # 边界框右下角的 y 坐标
             class_idx = ALL_CLASS.index(class_name)
             all_boxes.append([xmin, ymin, xmax, ymax, class_idx])
         # 应用YOLOv1数据增强
@@ -264,11 +309,11 @@ class VOCDataset(Dataset):
         # img, boxes = resize_data(img, all_boxes)
 
         # 获取一个网格的宽高
-        w_grid = self.size / 7
-        h_grid = self.size / 7
+        w_grid = GRID_CELL_SIZE
+        h_grid = GRID_CELL_SIZE
 
         # 真实标签，7*7*30，每个grid cell有30个元素，前10个元素为中心坐标和宽高，后20个元素为类别概率
-        label = np.zeros((7, 7, 30))
+        label = np.zeros((S, S, 30))
         for box in boxes:
             xmin, ymin, xmax, ymax, class_idx = box
             # 计算真实中心坐标
@@ -292,24 +337,40 @@ class VOCDataset(Dataset):
             # !后20个元素为类别概率，只有一个为1，其他为0
             label[x_idx, y_idx, 10 + class_idx] = 1
 
-        tensor_img = torch.tensor(img)  # (448, 448, 3)
+            # print(xmin, ymin, xmax, ymax) # 打印验证IOU是否正确还原坐标
+            # IOU([x, y, w, h], [0.5, 0.3, 0.6, 0.8], x_idx, y_idx)
+            # color = COLORS[class_idx]
+            # cv2.rectangle(img, (xmin, ymin), (xmax, ymax), color, 2)
+            # cv2.putText(
+            #     img,
+            #     ALL_CLASS[class_idx],
+            #     (xmin, ymin - 5),
+            #     cv2.FONT_HERSHEY_SIMPLEX,
+            #     0.5,
+            #     color,
+            #     2,
+            # )
+
+        # 将图片像素转换为Tensor，归一化到[0, 1]
+        tensor_img = torch.tensor(img, dtype=torch.float32) / 255.0  # (448, 448, 3)
         # cv2.imshow("image", img)
         # cv2.waitKey(0)
         # cv2.destroyAllWindows()
         tensor_img = tensor_img.permute(2, 0, 1)  # 转换为 (3, 448, 448)
-        return tensor_img, torch.tensor(label)
+        return tensor_img, torch.tensor(label, dtype=torch.float32)
 
     def __len__(self):
         return len(self.images)
 
 
 if __name__ == "__main__":
+    # print(int(3 / 2))
     # loadData()
     dataset = VOCDataset()
     print(len(dataset))
-    img, label = dataset[0]
+    img, label = dataset[1]
     print(img.shape)  # (3, 448, 448)
     print(img)
     print(label.shape)  # (7, 7, 30)
-    torch.set_printoptions(threshold=float('inf'))  # 确保 Tensor 完整打印，不省略
+    torch.set_printoptions(threshold=float("inf"))  # 确保 Tensor 完整打印，不省略
     print(label)

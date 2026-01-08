@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torchsummary import summary
-
+from data import S, GRID_CELL_SIZE, IMAGE_SIZE, IOU
 
 """
 骨干网：论文原文使用前20个卷积层进行预训练
@@ -13,61 +14,101 @@ class BackBone(nn.Module):
         super().__init__()
         # 输入3通道448x448的图像
         self.block1 = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=64, kernel_size=7, padding=3, stride=2),
+            nn.Conv2d(
+                in_channels=3, out_channels=64, kernel_size=7, padding=3, stride=2
+            ),
             nn.LeakyReLU(),
             nn.MaxPool2d(kernel_size=2, padding=0, stride=2),
         )
         # 输出64通道112x112的图像
         self.block2 = nn.Sequential(
-            nn.Conv2d(in_channels=64, out_channels=192, kernel_size=3, padding=1, stride=1),
+            nn.Conv2d(
+                in_channels=64, out_channels=192, kernel_size=3, padding=1, stride=1
+            ),
             nn.LeakyReLU(),
             nn.MaxPool2d(kernel_size=2, padding=0, stride=2),
         )
         # 输出192通道56x56的图像
         self.block3 = nn.Sequential(
-            nn.Conv2d(in_channels=192, out_channels=128, kernel_size=1, padding=0, stride=1),
+            nn.Conv2d(
+                in_channels=192, out_channels=128, kernel_size=1, padding=0, stride=1
+            ),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, padding=1, stride=1),
+            nn.Conv2d(
+                in_channels=128, out_channels=256, kernel_size=3, padding=1, stride=1
+            ),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=1, padding=0, stride=1),
+            nn.Conv2d(
+                in_channels=256, out_channels=256, kernel_size=1, padding=0, stride=1
+            ),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, padding=1, stride=1),
+            nn.Conv2d(
+                in_channels=256, out_channels=512, kernel_size=3, padding=1, stride=1
+            ),
             nn.LeakyReLU(),
             nn.MaxPool2d(kernel_size=2, padding=0, stride=2),
         )
         # 输出512通道28x28的图像
         self.block4 = nn.Sequential(
-            nn.Conv2d(in_channels=512, out_channels=256, kernel_size=1, padding=0, stride=1),
+            nn.Conv2d(
+                in_channels=512, out_channels=256, kernel_size=1, padding=0, stride=1
+            ),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, padding=1, stride=1),
+            nn.Conv2d(
+                in_channels=256, out_channels=512, kernel_size=3, padding=1, stride=1
+            ),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=512, out_channels=256, kernel_size=1, padding=0, stride=1),
+            nn.Conv2d(
+                in_channels=512, out_channels=256, kernel_size=1, padding=0, stride=1
+            ),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, padding=1, stride=1),
+            nn.Conv2d(
+                in_channels=256, out_channels=512, kernel_size=3, padding=1, stride=1
+            ),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=512, out_channels=256, kernel_size=1, padding=0, stride=1),
+            nn.Conv2d(
+                in_channels=512, out_channels=256, kernel_size=1, padding=0, stride=1
+            ),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, padding=1, stride=1),
+            nn.Conv2d(
+                in_channels=256, out_channels=512, kernel_size=3, padding=1, stride=1
+            ),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=512, out_channels=256, kernel_size=1, padding=0, stride=1),
+            nn.Conv2d(
+                in_channels=512, out_channels=256, kernel_size=1, padding=0, stride=1
+            ),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, padding=1, stride=1),
+            nn.Conv2d(
+                in_channels=256, out_channels=512, kernel_size=3, padding=1, stride=1
+            ),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=512, out_channels=512, kernel_size=1, padding=0, stride=1),
+            nn.Conv2d(
+                in_channels=512, out_channels=512, kernel_size=1, padding=0, stride=1
+            ),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, padding=1, stride=1),
+            nn.Conv2d(
+                in_channels=512, out_channels=1024, kernel_size=3, padding=1, stride=1
+            ),
             nn.LeakyReLU(),
             nn.MaxPool2d(kernel_size=2, padding=0, stride=2),
         )
         # 输出1024通道14x14的图像
         self.block5 = nn.Sequential(
-            nn.Conv2d(in_channels=1024, out_channels=512, kernel_size=1, padding=0, stride=1),
+            nn.Conv2d(
+                in_channels=1024, out_channels=512, kernel_size=1, padding=0, stride=1
+            ),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, padding=1, stride=1),
+            nn.Conv2d(
+                in_channels=512, out_channels=1024, kernel_size=3, padding=1, stride=1
+            ),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=1024, out_channels=512, kernel_size=1, padding=0, stride=1),
+            nn.Conv2d(
+                in_channels=1024, out_channels=512, kernel_size=1, padding=0, stride=1
+            ),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, padding=1, stride=1),
+            nn.Conv2d(
+                in_channels=512, out_channels=1024, kernel_size=3, padding=1, stride=1
+            ),
             nn.LeakyReLU(),
         )
         # 输出1024通道14x14的图像
@@ -99,16 +140,24 @@ class YOLOV1(nn.Module):
         self.backbone = BackBone()
         # 输出1024通道14x14的图像
         self.end_block1 = nn.Sequential(
-            nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=3, padding=1, stride=1),
+            nn.Conv2d(
+                in_channels=1024, out_channels=1024, kernel_size=3, padding=1, stride=1
+            ),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=3, padding=1, stride=2),
+            nn.Conv2d(
+                in_channels=1024, out_channels=1024, kernel_size=3, padding=1, stride=2
+            ),
             nn.LeakyReLU(),
         )
         # 输出1024通道7x7的图像
         self.end_block2 = nn.Sequential(
-            nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=3, padding=1, stride=1),
+            nn.Conv2d(
+                in_channels=1024, out_channels=1024, kernel_size=3, padding=1, stride=1
+            ),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=3, padding=1, stride=1),
+            nn.Conv2d(
+                in_channels=1024, out_channels=1024, kernel_size=3, padding=1, stride=1
+            ),
             nn.LeakyReLU(),
         )
         # 输出1024通道7x7的图像
@@ -132,6 +181,59 @@ class YOLOV1(nn.Module):
         # 形状转换为为(bs, 7, 7, 30)
         x = x.view(-1, self.S, self.S, self.B * 5 + self.num_classes)
         return x
+
+
+class YOLOLoss(nn.Module):
+    def __init__(self, S=S, B=2, num_classes=20):
+        super().__init__()
+        self.S = S
+        self.B = B
+        self.num_classes = num_classes
+        self.lambda_noobj = 0.5
+        self.lambda_coord = 5
+
+    def MSE(self, predictions, targets):
+        # reduction表示是否对所有元素求平均，默认是mean
+        #   return (predictions.item() - targets.item()) ** 2
+        return F.mse_loss(predictions, targets, reduction="mean").item()
+
+    def forward(self, predictions, targets):
+        # predictions: (bs, S, S, B*5 + num_classes)
+        # targets: (bs, S, S, B*5 + num_classes)
+        xy_loss = 0  # 坐标损失
+        wh_loss = 0  # 宽高损失
+        conf_loss = 0  # 置信度损失
+        class_loss = 0  # 类别损失
+
+        batch_size = predictions.shape[0]
+        for batch in range(batch_size):
+            for grid_i in range(self.S):
+                for grid_j in range(self.S):
+                    ground_true = targets[batch, grid_i, grid_j, :5]  # 真实框
+                    box1 = predictions[batch, grid_i, grid_j, :5]  # 预测框1
+                    box2 = predictions[batch, grid_i, grid_j, 5:10]  # 预测框2
+                    has_object = (ground_true[4] == 1).item()
+                    #   print(ground_true)
+                    #   print(box1)
+                    #   print(box2)
+                    # !grid cell中有物体，即有真实框的中心坐标位于该grid cell中
+                    if has_object:
+                        # !计算真实框与预测框的IOU
+                        box1_iou = IOU(ground_true[0:4], box1[0:4], grid_i, grid_j)
+                        box2_iou = IOU(ground_true[0:4], box2[0:4], grid_i, grid_j)
+
+                        if box1_iou > box2_iou:
+                            #! 选择置信度大的box作为预测框去拟合
+                            xy_loss
+                    else:
+                        # !grid cell中没有物体，只需要对两个预测box与标签值进行置信度损失计算
+                        # print(box1[4], box2[4])
+                        # !因为没有物体所以标签值的置信度为0
+                        conf_loss += self.lambda_noobj * (
+                            self.MSE(box1[4], torch.tensor(0.0, device=box1.device))
+                            + self.MSE(box2[4], torch.tensor(0.0, device=box2.device))
+                        )
+                        print(conf_loss)
 
 
 if __name__ == "__main__":
