@@ -230,7 +230,7 @@ class YOLOLoss(nn.Module):
                     predictions_classes = predictions[
                         batch, grid_i, grid_j, 10:
                     ]  # 预测框类别
-                    has_object = ground_true[4] > 0
+                    has_object = ground_true[4] == 1
                     #   print(ground_true)
                     #   print(box1)
                     #   print(box2)
@@ -264,6 +264,7 @@ class YOLOLoss(nn.Module):
 
                             # !计算置信度损失
                             # 使用预测的置信度 box1[4] 与 真实IOU box1_iou 进行MSE
+                            # !IOU box1_iou 是一个标量，需要使用 .detach() 方法将其从计算图中分离出来，避免梯度回传时的错误
                             conf_loss += self.MSE(box1[4], box1_iou.detach())
                             # !负样本，计算没有物体的置信度损失
                             conf_loss += self.lambda_noobj * self.MSE(

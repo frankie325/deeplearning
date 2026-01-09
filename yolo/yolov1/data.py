@@ -7,61 +7,75 @@ from torch.utils.data import Dataset
 import torch
 from PIL import Image, ImageDraw, ImageFont
 
-# ALL_CLASS = [
-#     "person",
-#     "bird",
-#     "cat",
-#     "cow",
-#     "dog",
-#     "horse",
-#     "sheep",
-#     "aeroplane",
-#     "bicycle",
-#     "boat",
-#     "bus",
-#     "car",
-#     "motorbike",
-#     "train",
-#     "bottle",
-#     "chair",
-#     "diningtable",
-#     "pottedplant",
-#     "sofa",
-#     "tvmonitor",
-# ]
+# img_path = "D:\my code\yolo_data\VOC2012\JPEGImages"
+# annotations_path = "D:\my code\yolo_data\VOC2012\Annotations"
+# img_path = "/Users/frank/code/ai/yolo_data/VOC2012/JPEGImages"
+# annotations_path = "/Users/frank/code/ai/yolo_data/VOC2012/Annotations"
+# img_path = "D:\my code\yolo_data\DetData\\train\images"
+# annotations_path = "D:\my code\yolo_data\DetData\\train\Annotations"
+# img_path = "/Users/frank/code/ai/yolo_data/DetData/train/images"
+# annotations_path = "/Users/frank/code/ai/yolo_data/DetData/train/Annotations"
+img_path = "D:\my code\yolo_data\VOC2007\JPEGImages"
+annotations_path = "D:\my code\yolo_data\VOC2007\Annotations"
 
-# # 20个分类的颜色
-# COLORS = [
-#     (0, 255, 0),
-#     (255, 0, 0),
-#     (0, 0, 255),
-#     (255, 255, 0),
-#     (0, 255, 255),
-#     (255, 0, 255),
-#     (128, 0, 0),
-#     (0, 128, 0),
-#     (0, 0, 128),
-#     (128, 128, 0),
-#     (128, 0, 128),
-#     (0, 128, 128),
-#     (255, 128, 0),
-#     (255, 0, 128),
-#     (128, 255, 0),
-#     (0, 255, 128),
-#     (255, 128, 128),
-#     (128, 255, 128),
-#     (128, 128, 255),
-#     (192, 192, 192),
-# ]
+ALL_CLASS = [
+    "person",
+    "bird",
+    "cat",
+    "cow",
+    "dog",
+    "horse",
+    "sheep",
+    "aeroplane",
+    "bicycle",
+    "boat",
+    "bus",
+    "car",
+    "motorbike",
+    "train",
+    "bottle",
+    "chair",
+    "diningtable",
+    "pottedplant",
+    "sofa",
+    "tvmonitor",
+]
 
-ALL_CLASS = ["猫羽雫", "喵喵~", "女孩"]
-
-# 3个分类的颜色
+# 20个分类的颜色
 COLORS = [
     (0, 255, 0),
     (255, 0, 0),
     (0, 0, 255),
+    (255, 255, 0),
+    (0, 255, 255),
+    (255, 0, 255),
+    (128, 0, 0),
+    (0, 128, 0),
+    (0, 0, 128),
+    (128, 128, 0),
+    (128, 0, 128),
+    (0, 128, 128),
+    (255, 128, 0),
+    (255, 0, 128),
+    (128, 255, 0),
+    (0, 255, 128),
+    (255, 128, 128),
+    (128, 255, 128),
+    (128, 128, 255),
+    (192, 192, 192),
 ]
+
+# ALL_CLASS = ["猫羽雫", "喵喵~", "女孩"]
+
+# # 3个分类的颜色
+# COLORS = [
+#     (0, 255, 0),
+#     (255, 0, 0),
+#     (0, 0, 255),
+# ]
+S = 7
+IMAGE_SIZE = 448
+GRID_CELL_SIZE = IMAGE_SIZE / S
 
 
 def cv2_add_chinese_text(img, text, position, text_color=(0, 255, 0), text_size=20):
@@ -81,19 +95,6 @@ def cv2_add_chinese_text(img, text, position, text_color=(0, 255, 0), text_size=
 
     # 转换回OpenCV格式
     return cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2BGR)
-
-
-
-# img_path = "D:\my code\yolo_data\VOC2012\JPEGImages"
-# annotations_path = "D:\my code\yolo_data\VOC2012\Annotations"
-# img_path = "/Users/frank/code/ai/yolo_data/VOC2012/JPEGImages"
-# annotations_path = "/Users/frank/code/ai/yolo_data/VOC2012/Annotations"
-img_path = "/Users/frank/code/ai/yolo_data/DetData/train/images"
-annotations_path = "/Users/frank/code/ai/yolo_data/DetData/train/Annotations"
-
-S = 7
-IMAGE_SIZE = 448
-GRID_CELL_SIZE = IMAGE_SIZE / S
 
 
 def random_hsv(img):
@@ -244,19 +245,62 @@ def loadData():
             print(xmin, ymin, xmax, ymax, class_idx)
             color = COLORS[class_idx]
             cv2.rectangle(img, (xmin, ymin), (xmax, ymax), color, 2)
-            img = cv2_add_chinese_text(
+            cv2.putText(
                 img,
                 ALL_CLASS[class_idx],
-                (xmin, ymin - 25),
+                (xmin, ymin - 5),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                2.0,  # 字体大小调大
                 color,
-                20,
+                2,
             )
-
         cv2.imshow("image", img)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
         # 保存处理后的图像
         break
+
+
+def NMS(boxes):
+    iou_threshold = 0.5
+
+    # boxes: (7, 7, 30)
+    # 每个grid cell预测两个框，先过滤掉置信度小的那个框
+    # boxes = boxes[boxes[:, :, 4] > confidence_threshold]  # 过滤掉置信度小于0.5的框
+    # boxes = boxes[boxes[:, :, 5:].max(2)[0] > confidence_threshold]  # 过滤掉类别置信度小于0.5的框
+    # boxes = boxes
+    predict_boxes = []
+    for grid_i in range(S):
+        for grid_j in range(S):
+            # 取出当前grid cell的两个框
+            box1 = boxes[grid_i, grid_j, :5]
+            box2 = boxes[grid_i, grid_j, 5:10]
+            classes = boxes[grid_i, grid_j, 10:]
+            class_score = torch.max(classes)  # 概率最大的值
+            class_idx = torch.argmax(classes)  # 概率最大的类别索引
+            print(class_idx)
+
+            # !计算置信度：物体分类准确度 × 含有物体的置信度
+            box1_conf = box1[4] * class_score  # box1置信度
+            box2_conf = box2[4] * class_score  # box2置信度
+            # 保留置信度较高的框，过滤一半，还有49个框
+            if box1_conf > box2_conf:
+                predict_boxes.append(
+                    torch.cat(
+                        [box1[:4], box1_conf.unsqueeze(0), class_idx.unsqueeze(0)]
+                    )
+                )
+            else:
+                predict_boxes.append(
+                    torch.cat(
+                        [box2[:4], box2_conf.unsqueeze(0), class_idx.unsqueeze(0)]
+                    )
+                )
+
+    # 按照置信度从大到小排序
+    predict_boxes = sorted(predict_boxes, key=lambda x: x[4], reverse=True)
+    print(len(predict_boxes))
+    print(predict_boxes)
 
 
 # 计算两个矩形框的交并比（IOU）
@@ -313,7 +357,7 @@ def IOU(box1, box2, grid_i, grid_j):
 
     # 计算并集面积：两个矩形框的面积之和减去交集面积
     union_area = area1 + area2 - inter_area
-    
+
     # 计算IOU
     if union_area > 0:
         iou = inter_area / union_area
@@ -335,13 +379,11 @@ class VOCDataset(Dataset):
         list = os.listdir(img_path)
         # 按照文件名排序，确保数据是有序的，每次划分数据都是一样的
         list = sorted(list)
-        self.images = list
-        # list = list[:100]
         # 划分训练集和测试集
-        # if train:
-        #     self.images = list[: int(len(list) * 0.8)]
-        # else:
-        #     self.images = list[int(len(list) * 0.8):]
+        if train:
+            self.images = list[: int(len(list) * 0.8)]
+        else:
+            self.images = list[int(len(list) * 0.8) :]
 
     def __getitem__(self, index):
         img_name = self.images[index]
@@ -390,7 +432,7 @@ class VOCDataset(Dataset):
             # !转换成相对位置，相对于grid cell的左上角（即归一化到[0, 1]）
             x = (x_center / w_grid) - x_idx
             y = (y_center / h_grid) - y_idx
-            #  !图像宽高也归一化到[0, 1]
+            #  !宽高也归一化到[0, 1]
             w = (xmax - xmin) / self.size
             h = (ymax - ymin) / self.size
 
@@ -403,12 +445,14 @@ class VOCDataset(Dataset):
             # IOU([x, y, w, h], [0.5, 0.3, 0.6, 0.8], x_idx, y_idx)
             # color = COLORS[class_idx]
             # cv2.rectangle(img, (xmin, ymin), (xmax, ymax), color, 2)
-            # img = cv2_add_chinese_text(
+            # cv2.putText(
             #     img,
             #     ALL_CLASS[class_idx],
-            #     (xmin, ymin - 25),
+            #     (xmin, ymin - 5),
+            #     cv2.FONT_HERSHEY_SIMPLEX,
+            #     0.5,
             #     color,
-            #     20,
+            #     2,
             # )
 
         # 将图片像素转换为Tensor，归一化到[0, 1]
@@ -427,8 +471,8 @@ if __name__ == "__main__":
     # print(int(3 / 2))
     # loadData()
     dataset = VOCDataset(img_path, annotations_path)
-    print(len(dataset))
-    img, label = dataset[1]
+    print("图片数量", len(dataset))
+    img, label = dataset[3999]
     print(img.shape)  # (3, 448, 448)
     print(img)
     print(label.shape)  # (7, 7, 30)
