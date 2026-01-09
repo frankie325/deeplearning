@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchsummary import summary
-from data import S, GRID_CELL_SIZE, IMAGE_SIZE, IOU
+from data import S, IOU
 
 """
 骨干网：论文原文使用前20个卷积层进行预训练
@@ -121,13 +121,6 @@ class BackBone(nn.Module):
         x = self.block5(x)
         return x
 
-    def weight_init(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-
 
 class YOLOV1(nn.Module):
     def __init__(self, num_classes=20):
@@ -169,6 +162,13 @@ class YOLOV1(nn.Module):
             nn.Linear(4096, self.S * self.S * (self.B * 5 + self.num_classes)),
             nn.Sigmoid(),  # 增加sigmoid函数是为了将输出全部映射到(0,1)之间，因为如果出现负数或太大的数，后续计算loss会很麻烦
         )
+        # self.fc = nn.Sequential(
+        #     nn.Linear(1024 * 7 * 7, 100),
+        #     nn.LeakyReLU(),
+        #     nn.Dropout(0.5),
+        #     nn.Linear(100, self.S * self.S * (self.B * 5 + self.num_classes)),
+        #     nn.Sigmoid(),  # 增加sigmoid函数是为了将输出全部映射到(0,1)之间，因为如果出现负数或太大的数，后续计算loss会很麻烦
+        # )
         # 输出形状为(bs, 7*7*30)
 
     def forward(self, x):
@@ -182,6 +182,20 @@ class YOLOV1(nn.Module):
         x = x.view(-1, self.S, self.S, self.B * 5 + self.num_classes)
         return x
 
+    def init_weight(self):
+        #   for name, module in self.named_modules():
+        #       print(name, module)
+        for m in self.modules():
+            # print(m)
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='leaky_relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
 
 class YOLOLoss(nn.Module):
     def __init__(self, S=S, B=2, num_classes=20):
@@ -192,10 +206,10 @@ class YOLOLoss(nn.Module):
         self.lambda_noobj = 0.5
         self.lambda_coord = 5
 
-    def MSE(self, predictions, targets):
+    def MSE(self, predictions, targets, reduction="mean"):
         # reduction表示是否对所有元素求平均，默认是mean
         #   return (predictions.item() - targets.item()) ** 2
-        return F.mse_loss(predictions, targets, reduction="mean").item()
+        return F.mse_loss(predictions, targets, reduction=reduction)
 
     def forward(self, predictions, targets):
         # predictions: (bs, S, S, B*5 + num_classes)
@@ -212,7 +226,11 @@ class YOLOLoss(nn.Module):
                     ground_true = targets[batch, grid_i, grid_j, :5]  # 真实框
                     box1 = predictions[batch, grid_i, grid_j, :5]  # 预测框1
                     box2 = predictions[batch, grid_i, grid_j, 5:10]  # 预测框2
-                    has_object = (ground_true[4] == 1).item()
+                    targets_classes = targets[batch, grid_i, grid_j, 10:]  # 真实框类别
+                    predictions_classes = predictions[
+                        batch, grid_i, grid_j, 10:
+                    ]  # 预测框类别
+                    has_object = ground_true[4] > 0
                     #   print(ground_true)
                     #   print(box1)
                     #   print(box2)
@@ -223,8 +241,66 @@ class YOLOLoss(nn.Module):
                         box2_iou = IOU(ground_true[0:4], box2[0:4], grid_i, grid_j)
 
                         if box1_iou > box2_iou:
-                            #! 选择置信度大的box作为预测框去拟合
-                            xy_loss
+                            #! 选择置信度大的box作为预测框去拟合真实框，box1为正样本，box2为负样本
+                            # !计算坐标损失
+                            xy_loss += self.lambda_coord * (
+                                self.MSE(box1[0], ground_true[0])
+                                + self.MSE(box1[1], ground_true[1])
+                            )
+
+                            # !计算宽高损失
+                            # torch.sqrt 当预测的宽或高接近 0 时， sqrt 的导数（梯度）会趋向于无穷大，导致梯度爆炸，进而使权重更新为 NaN
+                            # 为了避免这个问题，我们在计算宽高损失时，对预测的宽高和真实的宽高都加上一个小的常数 1e-6
+                            wh_loss += self.lambda_coord * (
+                                self.MSE(
+                                    torch.sqrt(box1[2] + 1e-6),
+                                    torch.sqrt(ground_true[2] + 1e-6),
+                                )
+                                + self.MSE(
+                                    torch.sqrt(box1[3] + 1e-6),
+                                    torch.sqrt(ground_true[3] + 1e-6),
+                                )
+                            )
+
+                            # !计算置信度损失
+                            # 使用预测的置信度 box1[4] 与 真实IOU box1_iou 进行MSE
+                            conf_loss += self.MSE(box1[4], box1_iou.detach())
+                            # !负样本，计算没有物体的置信度损失
+                            conf_loss += self.lambda_noobj * self.MSE(
+                                box2[4], torch.tensor(0.0, device=box2.device)
+                            )
+                        else:
+                            # !box1为负样本，box2为正样本
+                            # !计算坐标损失
+                            xy_loss += self.lambda_coord * (
+                                self.MSE(box2[0], ground_true[0])
+                                + self.MSE(box2[1], ground_true[1])
+                            )
+
+                            # !计算宽高损失
+                            wh_loss += self.lambda_coord * (
+                                self.MSE(
+                                    torch.sqrt(box2[2] + 1e-6),
+                                    torch.sqrt(ground_true[2] + 1e-6),
+                                )
+                                + self.MSE(
+                                    torch.sqrt(box2[3] + 1e-6),
+                                    torch.sqrt(ground_true[3] + 1e-6),
+                                )
+                            )
+
+                            # !计算置信度损失
+                            # 使用预测的置信度 box2[4] 与 真实IOU box2_iou 进行MSE
+                            conf_loss += self.MSE(box2[4], box2_iou.detach())
+                            # !负样本，计算没有物体的置信度损失
+                            conf_loss += self.lambda_noobj * self.MSE(
+                                box1[4], torch.tensor(0.0, device=box1.device)
+                            )
+
+                        class_loss += self.MSE(
+                            predictions_classes, targets_classes, reduction="sum"
+                        )
+
                     else:
                         # !grid cell中没有物体，只需要对两个预测box与标签值进行置信度损失计算
                         # print(box1[4], box2[4])
@@ -233,7 +309,16 @@ class YOLOLoss(nn.Module):
                             self.MSE(box1[4], torch.tensor(0.0, device=box1.device))
                             + self.MSE(box2[4], torch.tensor(0.0, device=box2.device))
                         )
-                        print(conf_loss)
+
+        sum_loss = (xy_loss + wh_loss + conf_loss + class_loss) / batch_size
+        #   print(sum_loss)
+        return (
+            sum_loss,
+            xy_loss / batch_size,
+            wh_loss / batch_size,
+            conf_loss / batch_size,
+            class_loss / batch_size,
+        )
 
 
 if __name__ == "__main__":

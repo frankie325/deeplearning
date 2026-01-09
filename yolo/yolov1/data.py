@@ -5,58 +5,92 @@ import xml.etree.ElementTree as ET
 import numpy as np
 from torch.utils.data import Dataset
 import torch
+from PIL import Image, ImageDraw, ImageFont
 
-ALL_CLASS = [
-    "person",
-    "bird",
-    "cat",
-    "cow",
-    "dog",
-    "horse",
-    "sheep",
-    "aeroplane",
-    "bicycle",
-    "boat",
-    "bus",
-    "car",
-    "motorbike",
-    "train",
-    "bottle",
-    "chair",
-    "diningtable",
-    "pottedplant",
-    "sofa",
-    "tvmonitor",
-]
+# ALL_CLASS = [
+#     "person",
+#     "bird",
+#     "cat",
+#     "cow",
+#     "dog",
+#     "horse",
+#     "sheep",
+#     "aeroplane",
+#     "bicycle",
+#     "boat",
+#     "bus",
+#     "car",
+#     "motorbike",
+#     "train",
+#     "bottle",
+#     "chair",
+#     "diningtable",
+#     "pottedplant",
+#     "sofa",
+#     "tvmonitor",
+# ]
 
-# 20个分类的颜色
+# # 20个分类的颜色
+# COLORS = [
+#     (0, 255, 0),
+#     (255, 0, 0),
+#     (0, 0, 255),
+#     (255, 255, 0),
+#     (0, 255, 255),
+#     (255, 0, 255),
+#     (128, 0, 0),
+#     (0, 128, 0),
+#     (0, 0, 128),
+#     (128, 128, 0),
+#     (128, 0, 128),
+#     (0, 128, 128),
+#     (255, 128, 0),
+#     (255, 0, 128),
+#     (128, 255, 0),
+#     (0, 255, 128),
+#     (255, 128, 128),
+#     (128, 255, 128),
+#     (128, 128, 255),
+#     (192, 192, 192),
+# ]
+
+ALL_CLASS = ["猫羽雫", "喵喵~", "女孩"]
+
+# 3个分类的颜色
 COLORS = [
     (0, 255, 0),
     (255, 0, 0),
     (0, 0, 255),
-    (255, 255, 0),
-    (0, 255, 255),
-    (255, 0, 255),
-    (128, 0, 0),
-    (0, 128, 0),
-    (0, 0, 128),
-    (128, 128, 0),
-    (128, 0, 128),
-    (0, 128, 128),
-    (255, 128, 0),
-    (255, 0, 128),
-    (128, 255, 0),
-    (0, 255, 128),
-    (255, 128, 128),
-    (128, 255, 128),
-    (128, 128, 255),
-    (192, 192, 192),
 ]
 
-img_path = "D:\my code\yolo_data\VOC2012\JPEGImages"
-annotations_path = "D:\my code\yolo_data\VOC2012\Annotations"
+
+def cv2_add_chinese_text(img, text, position, text_color=(0, 255, 0), text_size=20):
+    if isinstance(img, np.ndarray):  # 判断是否OpenCV图片类型
+        img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    # 创建一个可以在给定图像上绘图的对象
+    draw = ImageDraw.Draw(img)
+    # 字体的格式
+    font_path = "/System/Library/Fonts/STHeiti Light.ttc"
+    try:
+        font = ImageFont.truetype(font_path, text_size, encoding="utf-8")
+    except OSError:
+        font = ImageFont.load_default()
+
+    # 绘制文本
+    draw.text(position, text, fill=text_color[::-1], font=font)
+
+    # 转换回OpenCV格式
+    return cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2BGR)
+
+
+
+# img_path = "D:\my code\yolo_data\VOC2012\JPEGImages"
+# annotations_path = "D:\my code\yolo_data\VOC2012\Annotations"
 # img_path = "/Users/frank/code/ai/yolo_data/VOC2012/JPEGImages"
 # annotations_path = "/Users/frank/code/ai/yolo_data/VOC2012/Annotations"
+img_path = "/Users/frank/code/ai/yolo_data/DetData/train/images"
+annotations_path = "/Users/frank/code/ai/yolo_data/DetData/train/Annotations"
+
 S = 7
 IMAGE_SIZE = 448
 GRID_CELL_SIZE = IMAGE_SIZE / S
@@ -210,14 +244,12 @@ def loadData():
             print(xmin, ymin, xmax, ymax, class_idx)
             color = COLORS[class_idx]
             cv2.rectangle(img, (xmin, ymin), (xmax, ymax), color, 2)
-            cv2.putText(
+            img = cv2_add_chinese_text(
                 img,
                 ALL_CLASS[class_idx],
-                (xmin, ymin - 5),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
+                (xmin, ymin - 25),
                 color,
-                2,
+                20,
             )
 
         cv2.imshow("image", img)
@@ -239,54 +271,84 @@ def IOU(box1, box2, grid_i, grid_j):
 
     # 复原出边界框的坐标
     # 还原中心点坐标 - 还原宽度的一半
-    x1_min = (box1_x + grid_i) * w_grid - box1_w * IMAGE_SIZE / 2  # 边界框左上角的 x 坐标
-    y1_min = (box1_y + grid_j) * h_grid - box1_h * IMAGE_SIZE / 2  # 边界框左上角的 y 坐标
-    x1_max = (box1_x + grid_i) * w_grid + box1_w * IMAGE_SIZE / 2  # 边界框右下角的 x 坐标
-    y1_max = (box1_y + grid_j) * h_grid + box1_h * IMAGE_SIZE / 2  # 边界框右下角的 y 坐标
+    x1_min = (
+        box1_x + grid_i
+    ) * w_grid - box1_w * IMAGE_SIZE / 2  # 边界框左上角的 x 坐标
+    y1_min = (
+        box1_y + grid_j
+    ) * h_grid - box1_h * IMAGE_SIZE / 2  # 边界框左上角的 y 坐标
+    x1_max = (
+        box1_x + grid_i
+    ) * w_grid + box1_w * IMAGE_SIZE / 2  # 边界框右下角的 x 坐标
+    y1_max = (
+        box1_y + grid_j
+    ) * h_grid + box1_h * IMAGE_SIZE / 2  # 边界框右下角的 y 坐标
     # print(x1_min, y1_min, x1_max, y1_max)
-    x2_min = (box2_x + grid_i) * w_grid - box2_w * IMAGE_SIZE / 2  # 边界框左上角的 x 坐标
-    y2_min = (box2_y + grid_j) * h_grid - box2_h * IMAGE_SIZE / 2  # 边界框左上角的 y 坐标   
-    x2_max = (box2_x + grid_i) * w_grid + box2_w * IMAGE_SIZE / 2  # 边界框右下角的 x 坐标
-    y2_max = (box2_y + grid_j) * h_grid + box2_h * IMAGE_SIZE / 2  # 边界框右下角的 y 坐标
+    x2_min = (
+        box2_x + grid_i
+    ) * w_grid - box2_w * IMAGE_SIZE / 2  # 边界框左上角的 x 坐标
+    y2_min = (
+        box2_y + grid_j
+    ) * h_grid - box2_h * IMAGE_SIZE / 2  # 边界框左上角的 y 坐标
+    x2_max = (
+        box2_x + grid_i
+    ) * w_grid + box2_w * IMAGE_SIZE / 2  # 边界框右下角的 x 坐标
+    y2_max = (
+        box2_y + grid_j
+    ) * h_grid + box2_h * IMAGE_SIZE / 2  # 边界框右下角的 y 坐标
 
     # 计算两个矩形面积
     area1 = (x1_max - x1_min) * (y1_max - y1_min)
     area2 = (x2_max - x2_min) * (y2_max - y2_min)
 
     # 计算交集面积
-    x_inter_min = max(x1_min, x2_min)  # 交集的左上角x坐标
-    y_inter_min = max(y1_min, y2_min)  # 交集的左上角y坐标
-    x_inter_max = min(x1_max, x2_max)  # 交集的右下角x坐标
-    y_inter_max = min(y1_max, y2_max)  # 交集的右下角y坐标
-    inter_area = max(0, x_inter_max - x_inter_min) * max(0, y_inter_max - y_inter_min)
+    x_inter_min = torch.max(x1_min, x2_min)  # 交集的左上角x坐标
+    y_inter_min = torch.max(y1_min, y2_min)  # 交集的左上角y坐标
+    x_inter_max = torch.min(x1_max, x2_max)  # 交集的右下角x坐标
+    y_inter_max = torch.min(y1_max, y2_max)  # 交集的右下角y坐标
+
+    inter_area = torch.max(
+        torch.tensor(0.0, device=x1_min.device), x_inter_max - x_inter_min
+    ) * torch.max(torch.tensor(0.0, device=x1_min.device), y_inter_max - y_inter_min)
 
     # 计算并集面积：两个矩形框的面积之和减去交集面积
     union_area = area1 + area2 - inter_area
-
+    
     # 计算IOU
-    iou = inter_area / union_area if union_area > 0 else 0.0
+    if union_area > 0:
+        iou = inter_area / union_area
+    else:
+        iou = (
+            torch.tensor(0.0, device=inter_area.device)
+            if isinstance(inter_area, torch.Tensor)
+            else 0.0
+        )
 
     return iou
 
 
 class VOCDataset(Dataset):
-    def __init__(self, train=True):
+    def __init__(self, img_path, annotations_path, train=True):
+        self.img_path = img_path
+        self.annotations_path = annotations_path
         self.size = IMAGE_SIZE  # 图像转换为448的尺寸
         list = os.listdir(img_path)
         # 按照文件名排序，确保数据是有序的，每次划分数据都是一样的
         list = sorted(list)
+        self.images = list
+        # list = list[:100]
         # 划分训练集和测试集
-        if train:
-            self.images = list[: int(len(list) * 0.8)]
-        else:
-            self.images = list[int(len(list) * 0.8) :]
+        # if train:
+        #     self.images = list[: int(len(list) * 0.8)]
+        # else:
+        #     self.images = list[int(len(list) * 0.8):]
 
     def __getitem__(self, index):
         img_name = self.images[index]
         name, suffix = img_name.split(".")
-        img = cv2.imread(os.path.join(img_path, img_name))
+        img = cv2.imread(os.path.join(self.img_path, img_name))
         annotation_name = name + ".xml"
-        annotation_path = os.path.join(annotations_path, annotation_name)
+        annotation_path = os.path.join(self.annotations_path, annotation_name)
         tree = ET.parse(annotation_path)
 
         all_boxes = []
@@ -298,10 +360,10 @@ class VOCDataset(Dataset):
             if class_name not in ALL_CLASS:
                 continue
             bbox = object.find("bndbox")
-            xmin = int(bbox.findtext("xmin"))  # 边界框左上角的 x 坐标
-            ymin = int(bbox.findtext("ymin"))  # 边界框左上角的 y 坐标
-            xmax = int(bbox.findtext("xmax"))  # 边界框右下角的 x 坐标
-            ymax = int(bbox.findtext("ymax"))  # 边界框右下角的 y 坐标
+            xmin = int(float(bbox.findtext("xmin")))  # 边界框左上角的 x 坐标
+            ymin = int(float(bbox.findtext("ymin")))  # 边界框左上角的 y 坐标
+            xmax = int(float(bbox.findtext("xmax")))  # 边界框右下角的 x 坐标
+            ymax = int(float(bbox.findtext("ymax")))  # 边界框右下角的 y 坐标
             class_idx = ALL_CLASS.index(class_name)
             all_boxes.append([xmin, ymin, xmax, ymax, class_idx])
         # 应用YOLOv1数据增强
@@ -312,8 +374,8 @@ class VOCDataset(Dataset):
         w_grid = GRID_CELL_SIZE
         h_grid = GRID_CELL_SIZE
 
-        # 真实标签，7*7*30，每个grid cell有30个元素，前10个元素为中心坐标和宽高，后20个元素为类别概率
-        label = np.zeros((S, S, 30))
+        # 真实标签，7*7*(10+num_classes)，每个grid cell有10+num_classes个元素，前10个元素为中心坐标和宽高，后num_classes个元素为类别概率
+        label = np.zeros((S, S, 10 + len(ALL_CLASS)))
         for box in boxes:
             xmin, ymin, xmax, ymax, class_idx = box
             # 计算真实中心坐标
@@ -341,14 +403,12 @@ class VOCDataset(Dataset):
             # IOU([x, y, w, h], [0.5, 0.3, 0.6, 0.8], x_idx, y_idx)
             # color = COLORS[class_idx]
             # cv2.rectangle(img, (xmin, ymin), (xmax, ymax), color, 2)
-            # cv2.putText(
+            # img = cv2_add_chinese_text(
             #     img,
             #     ALL_CLASS[class_idx],
-            #     (xmin, ymin - 5),
-            #     cv2.FONT_HERSHEY_SIMPLEX,
-            #     0.5,
+            #     (xmin, ymin - 25),
             #     color,
-            #     2,
+            #     20,
             # )
 
         # 将图片像素转换为Tensor，归一化到[0, 1]
@@ -366,7 +426,7 @@ class VOCDataset(Dataset):
 if __name__ == "__main__":
     # print(int(3 / 2))
     # loadData()
-    dataset = VOCDataset()
+    dataset = VOCDataset(img_path, annotations_path)
     print(len(dataset))
     img, label = dataset[1]
     print(img.shape)  # (3, 448, 448)
