@@ -298,9 +298,7 @@ class YOLOLoss(nn.Module):
                                 box1[4], torch.tensor(0.0, device=box1.device)
                             )
 
-                        class_loss += self.MSE(
-                            predictions_classes, targets_classes, reduction="sum"
-                        )
+                        class_loss += self.MSE(predictions_classes, targets_classes)
 
                     else:
                         # !grid cell中没有物体，只需要对两个预测box与标签值进行置信度损失计算

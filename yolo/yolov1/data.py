@@ -162,6 +162,9 @@ def augment_data(img, boxes):
     # 更新图像变量为画布
     img = canvas
 
+    if boxes is None:
+        return img
+
     # 用于存储变换后的边界框
     new_boxes = []
     # 遍历所有的边界框
@@ -184,6 +187,36 @@ def augment_data(img, boxes):
 
     # 返回处理后的图像和边界框
     return img, new_boxes
+
+
+# 预测时使用的预处理：仅缩放和填充(Letterbox)，不进行颜色增强
+def process_predict_data(img):
+    # 获取图像的高和宽
+    h, w = img.shape[:2]
+    # 目标尺寸为448x448
+    target_size = IMAGE_SIZE
+
+    # 计算缩放比例
+    scale = min(target_size / w, target_size / h)
+
+    # 计算缩放后的新宽高
+    new_w = int(w * scale)
+    new_h = int(h * scale)
+
+    # 创建填充灰色的画布
+    canvas = np.full((target_size, target_size, 3), 128, dtype=np.uint8)
+
+    # 缩放图像
+    resized_img = cv2.resize(img, (new_w, new_h))
+
+    # 计算居中偏移量
+    dx = (target_size - new_w) // 2
+    dy = (target_size - new_h) // 2
+
+    # 粘贴图像到画布中心
+    canvas[dy : dy + new_h, dx : dx + new_w] = resized_img
+
+    return canvas
 
 
 # 只做图像的resize
@@ -263,7 +296,7 @@ def loadData():
 
 def NMS(boxes):
     iou_threshold = 0.5
-
+    confidence_threshold = 0.5
     # boxes: (7, 7, 30)
     # 每个grid cell预测两个框，先过滤掉置信度小的那个框
     # boxes = boxes[boxes[:, :, 4] > confidence_threshold]  # 过滤掉置信度小于0.5的框
@@ -275,33 +308,115 @@ def NMS(boxes):
             # 取出当前grid cell的两个框
             box1 = boxes[grid_i, grid_j, :5]
             box2 = boxes[grid_i, grid_j, 5:10]
+            # print("box1:", box1)
+            # print("box2:", box2)
             classes = boxes[grid_i, grid_j, 10:]
+            # print("classes:", classes)
             class_score = torch.max(classes)  # 概率最大的值
             class_idx = torch.argmax(classes)  # 概率最大的类别索引
-            print(class_idx)
-
+            print("class_idx:", class_idx)
+            # print("class_score:", class_score)  #标量
+            # print("class_idx:", class_idx)  #标量
             # !计算置信度：物体分类准确度 × 含有物体的置信度
             box1_conf = box1[4] * class_score  # box1置信度
             box2_conf = box2[4] * class_score  # box2置信度
+
+            # print(box1_conf )  #标量
+            # print(box2_conf)   #标量
             # 保留置信度较高的框，过滤一半，还有49个框
             if box1_conf > box2_conf:
-                predict_boxes.append(
-                    torch.cat(
-                        [box1[:4], box1_conf.unsqueeze(0), class_idx.unsqueeze(0)]
-                    )
+                box = torch.cat(
+                    [box1[:4], box1_conf.unsqueeze(0), class_idx.unsqueeze(0)]
                 )
+
             else:
-                predict_boxes.append(
-                    torch.cat(
-                        [box2[:4], box2_conf.unsqueeze(0), class_idx.unsqueeze(0)]
-                    )
+                box = torch.cat(
+                    [box2[:4], box2_conf.unsqueeze(0), class_idx.unsqueeze(0)]
                 )
+            # !过滤掉置信度小于0.1的框
+            if box[4] < confidence_threshold:
+                continue
+            # !复原预测框的坐标
+            xmin, ymin, xmax, ymax = revert_position(box[0:4], grid_i, grid_j)
+            box[0:4] = torch.tensor([xmin, ymin, xmax, ymax])
+            predict_boxes.append(box)
 
     # 按照置信度从大到小排序
     predict_boxes = sorted(predict_boxes, key=lambda x: x[4], reverse=True)
-    print(len(predict_boxes))
     print(predict_boxes)
 
+    result_box = []
+    while len(predict_boxes) > 0:
+        # !取出置信度最高的框
+        current_box = predict_boxes.pop(0)
+        result_box.append(current_box)
+        # 筛选剩余的框
+        next_boxes = []
+        for item in predict_boxes:
+            keep = True
+            # !和同类预测框进行比较
+            if current_box[5] == item[5]:
+                iou = iou_for_box(current_box[:4], item[:4])
+                # print(iou.item())
+                # print(iou.item() > iou_threshold)
+                # !如果和当前框的IOU大于阈值0.5，就移除这个框
+                if iou.item() > iou_threshold:
+                    keep = False
+            if keep:
+                next_boxes.append(item)
+        predict_boxes = next_boxes
+    return result_box
+
+
+# 将（x,y,w,h）转换为坐标
+def revert_position(box, grid_i, grid_j):
+    x, y, w, h = box
+    w_grid = GRID_CELL_SIZE
+    h_grid = GRID_CELL_SIZE
+    # 复原出边界框的坐标
+    # 还原中心点坐标 - 还原宽度的一半
+    x_min = (
+        x + grid_i
+    ) * w_grid - w * IMAGE_SIZE / 2  # 边界框左上角的 x 坐标
+    y_min = (
+        y + grid_j
+    ) * h_grid - h * IMAGE_SIZE / 2  # 边界框左上角的 y 坐标
+    x_max = (
+        x + grid_i
+    ) * w_grid + w * IMAGE_SIZE / 2  # 边界框右下角的 x 坐标
+    y_max = (
+        y + grid_j
+    ) * h_grid + h * IMAGE_SIZE / 2  # 边界框右下角的 y 坐标
+    # print(x_min, y_min, x_max, y_max)
+    return torch.tensor([x_min, y_min, x_max, y_max])
+
+
+def iou_for_box(box1, box2):
+    xmin1, ymin1, xmax1, ymax1 = box1
+    xmin2, ymin2, xmax2, ymax2 = box2
+
+    # 计算两个矩形面积
+    area1 = (xmax1 - xmin1) * (ymax1 - ymin1)
+    area2 = (xmax2 - xmin2) * (ymax2 - ymin2)
+
+    # 计算交集的坐标
+    x_inter_min = torch.max(xmin1, xmin2)
+    y_inter_min = torch.max(ymin1, ymin2)
+    x_inter_max = torch.min(xmax1, xmax2)
+    y_inter_max = torch.min(ymax1, ymax2)
+
+    inter_area = torch.max(torch.tensor(0.0), x_inter_max - x_inter_min) * torch.max(torch.tensor(0.0), y_inter_max - y_inter_min)
+
+    # 计算并集面积：两个矩形框的面积之和减去交集面积
+    union_area = area1 + area2 - inter_area
+
+    # 计算IOU
+    if union_area > 0:
+        iou = inter_area / union_area
+    else:
+        torch.tensor(0.0)
+
+    return iou
 
 # 计算两个矩形框的交并比（IOU）
 # https://zhuanlan.zhihu.com/p/436801032
