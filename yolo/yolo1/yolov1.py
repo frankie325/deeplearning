@@ -5,6 +5,7 @@ from .yolov1_backbone import build_backbone
 from .yolov1_neck import build_neck
 from .yolov1_head import build_head
 import numpy as np
+from utils.misc import multiclass_nms
 
 
 class YOLOv1(nn.Module):
@@ -187,7 +188,7 @@ class YOLOv1(nn.Module):
             labels: (numpy.array) -> [N,]
         """
         # 将得分最高的类别作为预测的类别标签
-        labels = np.argmax(scores, axis=1) # 找出置信度最高的类别索引 （169，）
+        labels = np.argmax(scores, axis=1)  # 找出置信度最高的类别索引 （169，）
 
         # 使用高级索引获取每个网格最高类别的置信度值
         """
@@ -196,13 +197,12 @@ class YOLOv1(nn.Module):
         索引展开：组合成坐标对
         scores = [scores[0, 1], scores[1, 2], scores[2, 0]]
         """
-        scores = scores[(np.arange(scores.shape[0]), labels)] #（169，）
-
+        scores = scores[(np.arange(scores.shape[0]), labels)]  # （169，）
 
         # 阈值筛选
         # keep = (array([3, 7, 12, 45, ...]),)  元组，包含满足条件的索引
         keep = np.where(scores >= self.conf_thresh)
-        
+
         # 应用阈值筛选
         """
         元组索引取值进行过滤 示例：
@@ -211,9 +211,16 @@ class YOLOv1(nn.Module):
         # = [arr[0], arr[3], arr[5]]
         # = [10, 40, 60]
         """
-        bboxes = bboxes[keep] 
+        bboxes = bboxes[keep]
         scores = scores[keep]
         labels = labels[keep]
+
+        # nms
+        scores, labels, bboxes = multiclass_nms(
+            scores, labels, bboxes, self.nms_thresh, self.num_classes, False
+        )
+
+        return bboxes, scores, labels
 
     def forward(self, x):
         if not self.trainable:
