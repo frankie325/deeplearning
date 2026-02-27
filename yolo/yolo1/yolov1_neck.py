@@ -7,8 +7,16 @@ from .yolov1_basic import Conv
 class SPPF(nn.Module):
     """
     该代码参考YOLOv5的官方代码实现 https://github.com/ultralytics/yolov5
-    """
 
+    假设输入512个通道
+    先经过1x1卷积，输出256个通道
+
+    然后经过3个5x5最大池化层，通道数不变，分别输出256个通道
+    进行拼接256 + 256 + 256 + 256 = 1024
+
+    最后经过1x1卷积，输出512个通道
+    """
+    
     def __init__(
         self,
         in_dim,
