@@ -37,7 +37,7 @@ class SPPF(nn.Module):
             kernel_size=pooling_size, stride=1, padding=pooling_size // 2
         )
 
-    def farward(self, x):
+    def forward(self, x):
         x = self.cv1(x)
 
         # 3个最大池化层
