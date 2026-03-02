@@ -8,8 +8,9 @@ def build_dataset_config(args):
     else:
         cfg = dataset_cfg[args.dataset]
 
-    print("==============================")
+    print("==============Dataset Config================")
     print("Dataset Config: {} \n".format(cfg))
+    print("==============Dataset Config================")
 
     return cfg
 
@@ -36,7 +37,7 @@ from .data_config.transform_config import (
 
 
 def build_trans_config(trans_config="ssd"):
-    print("==============================")
+    print("==============Transform Config================")
     print("Transform: {}-Style ...".format(trans_config))
 
     # SSD-style transform
@@ -72,6 +73,7 @@ def build_trans_config(trans_config="ssd"):
         cfg = yolox_huge_trans_config
 
     print("Transform Config: {} \n".format(cfg))
+    print("==============Transform Config================")
 
     return cfg
 
@@ -88,8 +90,6 @@ from .model_config.yolox_config import yolox_cfg
 
 
 def build_model_config(args):
-    print("==============================")
-    print("Model: {} ...".format(args.model.upper()))
     # YOLOv1
     if args.model == "yolov1":
         cfg = yolov1_cfg
@@ -111,5 +111,9 @@ def build_model_config(args):
     # YOLOX
     elif args.model in ["yolox_n", "yolox_s", "yolox_m", "yolox_l", "yolox_x"]:
         cfg = yolox_cfg[args.model]
+
+    print("==============Model Config================")
+    print(f"Model: {args.model.upper()} ...\n Model Config:{cfg}")
+    print("==============Model Config================")
 
     return cfg

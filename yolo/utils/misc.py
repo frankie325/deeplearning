@@ -2,6 +2,62 @@
 import torch
 import torch.nn as nn
 import numpy as np
+from torch.utils.data import DataLoader, DistributedSampler
+
+
+# ---------------------------- For Dataset ----------------------------
+## build dataloader
+def build_dataloader(args, dataset, batch_size, collate_fn=None):
+    # distributed
+    if args.distributed:
+        # 将数据集均匀划分给多个GPU，多卡分布式训练时使用，每个GPU获得不重叠的数据子集，确保数据全覆盖且无重复
+        sampler = DistributedSampler(dataset)
+    else:
+        # 随机打乱数据顺序，单卡训练时使用，每个epoch数据顺序不同，增加训练随机性
+        sampler = torch.utils.data.RandomSampler(dataset)
+
+    # 将样本打包成batch
+    # sampler: 底层采样器
+    # batch_size: 每批样本数
+    # drop_last=True: 丢弃不足一个batch的最后一批
+    batch_sampler_train = torch.utils.data.BatchSampler(sampler, batch_size, drop_last=True)
+
+    # DataLoader 参数说明:
+    # - dataset: 数据集对象
+    # - batch_sampler: 批量采样器，决定如何采样和分批
+    # - collate_fn: 整理函数，将多个样本合并成一个batch
+    # - num_workers: 数据加载的子进程数，加速数据读取
+    # - pin_memory=True: 将数据固定在内存中，加速GPU数据传输
+    dataloader = DataLoader(dataset, batch_sampler=batch_sampler_train,
+                            collate_fn=collate_fn, num_workers=args.num_workers, pin_memory=True)
+    
+    return dataloader
+    
+## collate_fn for dataloader
+# DataLoader 的整理函数：将多个样本合并成一个batch
+# 输入: batch = [(image1, target1), (image2, target2), ...]  - 样本列表
+# 输出: (images, targets)  - 合并后的batch数据
+class CollateFunc(object):
+    def __call__(self, batch):
+        targets = []
+        images = []
+        print(len(batch))
+        # 遍历batch中的每个样本，分离图像和标签
+        for sample in batch:
+            image = sample[0]   # 图像tensor，形状 [C, H, W]
+            target = sample[1]  # 标签，通常是字典或tensor
+
+            images.append(image)
+            targets.append(target)
+
+        # 将图像列表堆叠成一个tensor
+        # torch.stack: 在第0维拼接，将 [C, H, W] x B 个tensor变成 [B, C, H, W]
+        images = torch.stack(images, 0) # [B, C, H, W]
+
+        # 注意: targets 不做stack，因为每个图像的目标数量可能不同
+        # targets 保持为列表形式: [target1, target2, ..., targetB]
+        return images, targets
+
 # ---------------------------- NMS ----------------------------
 ## basic NMS (基础非极大值抑制)
 def nms(bboxes, scores, nms_thresh):

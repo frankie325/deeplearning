@@ -2,10 +2,14 @@ import torch
 import argparse
 from torchsummary import summary
 
+# ----------------- Config Components -----------------
 from config import build_dataset_config, build_model_config, build_trans_config
 
 # ----------------- Model Components -----------------
 from models import build_model
+
+# ----------------- Train Components -----------------
+from engine import build_trainer
 
 
 def parse_args():
@@ -66,6 +70,7 @@ def parse_args():
     )
 
     # Epoch
+    # 训练最大轮次
     parser.add_argument("--max_epoch", default=300, type=int, help="max epoch.")
     parser.add_argument("--wp_epoch", default=1, type=int, help="warmup epoch.")
     parser.add_argument(
@@ -74,6 +79,8 @@ def parse_args():
         type=int,
         help="after eval epoch, the model is evaluated on val dataset.",
     )
+
+    # 表示在训练最后几个 epoch 关闭强数据增强
     parser.add_argument(
         "--no_aug_epoch",
         default=20,
@@ -103,6 +110,8 @@ def parse_args():
         type=str,
         help="load pretrained weight",
     )
+
+    # resume从之前中断的地方继续训练模型 
     parser.add_argument(
         "-r",
         "--resume",
@@ -113,7 +122,10 @@ def parse_args():
     )
 
     # Dataset
-    parser.add_argument("--root", default="D:/my code/yolo_data", help="data root") # 数据集根目录
+    parser.add_argument(
+        "--root", default="/Users/frank/code/ai/yolo_data", help="data root"
+    )  # 数据集根目录
+    # parser.add_argument("--root", default="D:/my code/yolo_data", help="data root") # 数据集根目录
     parser.add_argument(
         "-d",
         "--dataset",
@@ -150,7 +162,7 @@ def parse_args():
         "--grad_accumulate", default=1, type=int, help="gradient accumulation"
     )
 
-    # DDP train
+    # DDP train 用于启用 PyTorch 分布式数据并行训练，简称 DDP
     parser.add_argument(
         "-dist",
         "--distributed",
@@ -176,15 +188,19 @@ def parse_args():
 def train():
     args = parse_args()
     # print(123)
+    print("==============args================")
     print(args)
+    print("==============args================")
+
+    world_size = 1
 
     # 如果args.cuda为True，则使用GPU来训练，否则使用CPU来训练（强烈不推荐）
-    if args.cuda:
-        print("use GPU to train")
-        device = torch.device("cuda")
-    else:
-        print("use CPU to train")
-        device = torch.device("cpu")
+    # if args.cuda:
+    #     print("use GPU to train")
+    #     device = torch.device("cuda")
+    # else:
+    print("use CPU to train")
+    device = torch.device("cpu")
 
     # 构建训练所用到的 Dataset & Model & Transform相关的config变量
     data_cfg = build_dataset_config(args)
@@ -198,9 +214,22 @@ def train():
 
     # 将模型切换至train模式
     model = model.to(device).train()
-
     # 打印模型结构
     # summary(model, (3, args.img_size, args.img_size), batch_size=8)
+
+    # 标记单卡模式的model，方便我们做一些其他的处理，省去了DDP模式下的model.module的判断
+    model_without_ddp = model
+    # 构建训练所需的Trainer类
+    trainer = build_trainer(
+        args,
+        data_cfg,
+        model_cfg,
+        trans_cfg,
+        device,
+        model_without_ddp,
+        criterion,
+        world_size,
+    )
 
 
 if __name__ == "__main__":

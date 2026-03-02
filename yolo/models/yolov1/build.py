@@ -10,10 +10,9 @@ from .yolov1 import YOLOv1
 
 # 构建 YOLOv1 网络
 def build_yolov1(args, cfg, device, num_classes=80, trainable=False, deploy=False):
-    print("==============================")
+    print("==============Build YOLOv1================")
     print("Build {} ...".format(args.model.upper()))
 
-    print("==============================")
     print("Model Configuration: \n", cfg)
 
     # -------------- 构建YOLOv1 --------------
@@ -62,5 +61,5 @@ def build_yolov1(args, cfg, device, num_classes=80, trainable=False, deploy=Fals
     if trainable:
         # build criterion for training
         criterion = build_criterion(cfg, device, num_classes)
-
+    print("==============Build YOLOv1================")
     return model, criterion

@@ -4,12 +4,20 @@
 2. YoloxTrainer：该Trainer类主要用于训练YOLOX和笔者实现的较为简单的YOLOv7模型，相关参数如optimizer参数、学习策略等均采用默认设置；
 读者可以根据自己的需求来调整所使用的Trainer类的参数
 """
+
 import os
 from tqdm import tqdm
+import torch
 
+from utils.misc import CollateFunc, build_dataloader
 
 # ----------------- Dataset Components -----------------
 from dataset.build import build_dataset, build_transform
+
+# ----------------- Optimizer & LrScheduler Components -----------------
+from utils.solver.optimizer import build_yolo_optimizer
+from utils.solver.lr_scheduler import build_lr_scheduler
+
 
 # YOLOv8 Trainer: 主要用于训练YOLOv1~v5等YOLO模型
 class Yolov8Trainer(object):
@@ -38,11 +46,33 @@ class Yolov8Trainer(object):
         self.second_stage = False
 
         # 创建路径，用于保存模型的训练文件
-        self.path_to_save = os.path.join(
-            args.save_folder, args.dataset, args.model
-        )
+        self.path_to_save = os.path.join(args.save_folder, args.dataset, args.model)
 
         os.makedirs(self.path_to_save, exist_ok=True)
+
+        # ---------------------------- YOLOv5和YOLOv8项目的超参数设置 ----------------------------
+        ## 优化器的超参数
+        self.optimizer_dict = {
+            "optimizer": "sgd",  # 使用SGD优化器; 若使用AdamW，则修改为'adamw'，但建议使用SGD优化器
+            "momentum": 0.937,  # SGD所需的momentum，AdamW优化器不需要此参数
+            "weight_decay": 5e-4,  # SGD所需的weight decay; 若使用AdamW，则修改为5e-2
+            "lr0": 0.01,  # 初始学习率; 若使用AdamW，则修改为0.001
+        }
+        ## 学习策略的超参数
+        self.lr_schedule_dict = {
+            "scheduler": "linear",  # 使用YOLOv5&v8官方的线性衰减策略; 读者若想使用Cosine策略，则自改为'cosine'
+            "lrf": 0.01,  # 最终学习率与初始学习率的比值，即最终学习率=lr0 * lrf; 若使用Cosine策略，则修改为0.05
+        }
+        ## 训练的Warmup阶段的超参数
+        self.warmup_dict = {
+            "warmup_momentum": 0.8,  # 使用YOLOv5&v8官方的超参数设定，建议保持默认设置
+            "warmup_bias_lr": 0.1,  # 使用YOLOv5&v8官方的超参数设定，建议保持默认设置
+        }
+        ## EMA技巧的超参数，建议保持默认设置
+        self.ema_dict = {
+            "ema_decay": 0.9999,  # 使用YOLOv5&v8官方的超参数设定，建议保持默认设置
+            "ema_tau": 2000,  # 使用YOLOv5&v8官方的超参数设定，建议保持默认设置
+        }
 
         # ---------------------------- 构建Dataset、Model和Transforms所需的config变量 ----------------------------
         ## 数据集的config
@@ -77,9 +107,145 @@ class Yolov8Trainer(object):
             self.train_transform,
             is_train=True,
         )
+
+        # 构建Dataloader，用于后续的训练
+        self.train_loader = build_dataloader(
+            self.args,
+            self.dataset,
+            self.args.batch_size // self.world_size,
+            CollateFunc(),
+        )
+        # loader批量加载的数据格式
+        # images: [B, C, H, W]
+        # targets: 为列表形式 [target1, target2, ..., targetB]
+        # print(len(self.train_loader))
+        # for i, (images, targets) in enumerate(self.train_loader):
+        #     # images 是 tensor，用 .shape 查看形状
+        #     # targets 是列表（每个图像目标数不同），用 len() 查看数量
+        #     print(i, images.shape)
+        #     break
+
+        # ---------------------------- 构建测试模型性能的Evaluator类 ----------------------------
+
+        # ---------------------------- 构建梯度缩放器 ----------------------------
+        self.scaler = torch.amp.GradScaler("cuda", enabled=self.args.fp16)
+
+        # ---------------------------- 构建优化器 ----------------------------
+        ## 梯度累加的次数
+        accumulate = max(1, round(64 / self.args.batch_size))
+        print("Grad Accumulate: {}".format(accumulate))
+        ## 依据有效的batch size，自适应调整weight decay
+        self.optimizer_dict["weight_decay"] *= self.args.batch_size * accumulate / 64
+        ## 构建YOLO项目的优化器
+        self.optimizer, self.start_epoch = build_yolo_optimizer(
+            self.optimizer_dict, model, self.args.resume
+        )
+
+        # ---------------------------- 构建学习率策略 ----------------------------
+        ## 构建YOLO项目的学习率策略
+        self.lr_scheduler, self.lf = build_lr_scheduler(
+            self.lr_schedule_dict, self.optimizer, self.args.max_epoch
+        )
+
+        """
+        # 场景1：从头训练
+        # last_epoch = -1 (默认)
+        # 第一次 step() 后，last_epoch = 0，学习率对应 epoch 0
+
+        # 场景2：从 epoch 50 恢复
+        # 如果直接 step()，last_epoch 变成 0，学习率从头开始 ❌
+        # 正确做法：先设置 last_epoch = 49
+        scheduler.last_epoch = 49  # 告诉调度器"我们已经到过 epoch 49"
+        scheduler.step()           # 现在 last_epoch = 50，学习率正确对应 epoch 50 ✓
+        """
+        self.lr_scheduler.last_epoch = self.start_epoch - 1  # do not move
+        if self.args.resume:
+            self.lr_scheduler.step()
+
+        # ---------------------------- 构建 Model-EMA ----------------------------
+        self.model_ema = None
+
     # 训练模型的主函数
     def train(self, train_loader, val_loader):
         for epoch in tqdm(range(self.start_epoch, self.args.max_epoch)):
+            # if self.args.distributed:
+            #     self.train_loader.batch_sampler.sampler.set_epoch(epoch)
+            
+            # 检查当前是否进入训练的第二阶段，在第二阶段中，会关闭Mosaic & Mixup增强
+            if (
+                epoch >= (self.args.max_epoch - self.no_aug_epoch - 1)
+                and not self.second_stage
+            ):
+                self.check_second_stage()
+                # 保存Mosaic增强阶段的最后一次的模型参数
+                weight_name = "{}_last_mosaic_epoch.pth".format(self.args.model)
+                checkpoint_path = os.path.join(self.path_to_save, weight_name)
+                if not os.path.exists(checkpoint_path):
+                    print(
+                        "Saving state of the last Mosaic epoch-{}.".format(
+                            self.epoch + 1
+                        )
+                    )
+                    torch.save(
+                        {
+                            "model": model.state_dict(),
+                            "mAP": round(self.evaluator.map * 100, 1),
+                            "optimizer": self.optimizer.state_dict(),
+                            "epoch": self.epoch,
+                            "args": self.args,
+                        },
+                        checkpoint_path,
+                    )
+    # 训练的第二阶段
+    def check_second_stage(self):
+        # 在第二阶段，关闭Mosaic和Mixup两个强大的数据增强
+        # 使得模型最后在正常的数据上完成最终的收敛
+        print("============== Second stage of Training ==============")
+        self.second_stage = True
+
+        # 关闭 mosaic augmentation
+        if self.train_loader.dataset.mosaic_prob > 0.0:
+            print(" - Close < Mosaic Augmentation > ...")
+            self.train_loader.dataset.mosaic_prob = 0.0
+            self.heavy_eval = True
+
+        # 关闭 mixup augmentation
+        if self.train_loader.dataset.mixup_prob > 0.0:
+            print(" - Close < Mixup Augmentation > ...")
+            self.train_loader.dataset.mixup_prob = 0.0
+            self.heavy_eval = True
+
+        # 如果使用到了旋转相关的数据增强，也要将其关闭，因为旋转增强会引入一些不准确的bbox坐标
+        if "degrees" in self.trans_cfg.keys() and self.trans_cfg["degrees"] > 0.0:
+            print(" - Close < degress of rotation > ...")
+            self.trans_cfg["degrees"] = 0.0
+        if "shear" in self.trans_cfg.keys() and self.trans_cfg["shear"] > 0.0:
+            print(" - Close < shear of rotation >...")
+            self.trans_cfg["shear"] = 0.0
+        if (
+            "perspective" in self.trans_cfg.keys()
+            and self.trans_cfg["perspective"] > 0.0
+        ):
+            print(" - Close < perspective of rotation > ...")
+            self.trans_cfg["perspective"] = 0.0
+
+        # 如果使用到了平移和缩放，也将其关闭
+        if "translate" in self.trans_cfg.keys() and self.trans_cfg["translate"] > 0.0:
+            print(" - Close < translate of affine > ...")
+            self.trans_cfg["translate"] = 0.0
+        if "scale" in self.trans_cfg.keys():
+            print(" - Close < scale of affine >...")
+            self.trans_cfg["scale"] = [1.0, 1.0]
+
+        # 修改第二阶段的Transform类
+        print(" - Rebuild transforms ...")
+        self.train_transform, self.trans_cfg = build_transform(
+            args=self.args,
+            trans_config=self.trans_cfg,
+            max_stride=self.model_cfg["max_stride"],
+            is_train=True,
+        )
+        self.train_loader.dataset.transform = self.train_transform
 
 
 class YoloxTrainer(object):

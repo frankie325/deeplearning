@@ -29,6 +29,8 @@ def build_dataset(args, data_cfg, trans_config, transform, is_train=False):
             trans_config=trans_config,
             load_cache=args.load_cache
             )
+    
+    return dataset, dataset_info
 
 # ------------------------------ Transform ------------------------------
 def build_transform(args, trans_config, max_stride=32, is_train=False):

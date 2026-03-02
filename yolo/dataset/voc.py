@@ -357,8 +357,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='VOC-Dataset')
 
     # opt
-    parser.add_argument('--root', default='D:/my code/yolo_data',
+    parser.add_argument('--root', default='/Users/frank/code/ai/yolo_data',
                         help='data root')
+    # parser.add_argument('--root', default='D:/my code/yolo_data',
+    #                     help='data root')
     parser.add_argument('-size', '--img_size', default=640, type=int,
                         help='input image size.')
     parser.add_argument('--mosaic', default=None, type=float,
@@ -409,6 +411,25 @@ if __name__ == "__main__":
 
     for i in range(1):
         image, target, deltas = dataset.pull_item(i)
+        """
+        dataset数据格式为（image, target）：
+        image.shape = [C, H, W]
+        target = {
+           'boxes':
+               [
+                  [x1, y1, x2, y2],  # 目标1的边界框
+                  [x1, y1, x2, y2],  # 目标2的边界框
+                  [x1, y1, x2, y2],  # 目标3的边界框
+               ],
+            'labels':
+               [
+                  [0],  # 目标1的类别标签索引
+                  [2],  # 目标2的类别标签索引
+                  [3],  # 目标3的类别标签索引
+               ],
+            'orig_size': [height, width] #图形变化之前的宽高
+        }
+        """
         # to numpy
         image = image.permute(1, 2, 0).numpy()
         # to uint8

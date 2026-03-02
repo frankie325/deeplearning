@@ -401,6 +401,7 @@ class SSDBaseTransform(object):
             target['boxes'] = boxes
         
         # to tensor
+        # [H, W, C] => [C, H, W]
         img_tensor = torch.from_numpy(image).permute(2, 0, 1).contiguous().float()
         if target is not None:
             target['boxes'] = torch.from_numpy(boxes).float()

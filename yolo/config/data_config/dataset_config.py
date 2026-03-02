@@ -2,7 +2,7 @@
 
 dataset_cfg = {
     'voc': {
-        'data_name': 'VOCdevkit',
+        'data_name': '',
         'num_classes': 20,
         'class_indexs': None,
         'class_names': ('aeroplane', 'bicycle', 'bird', 'boat',
