@@ -254,9 +254,9 @@ class YOLOv1(nn.Module):
 
             # 网络输出
             outputs = {
-                "pred_obj": obj_pred,  # (torch.Tensor) [B, M, 1]
-                "pred_cls": cls_pred,  # (torch.Tensor) [B, M, C]
-                "pred_box": box_pred,  # (torch.Tensor) [B, M, 4]
+                "pred_obj": obj_pred,  # (torch.Tensor) [B, M, 1] 置信度预测
+                "pred_cls": cls_pred,  # (torch.Tensor) [B, M, C] 类别预测
+                "pred_box": box_pred,  # (torch.Tensor) [B, M, 4] 位置参数预测
                 "stride": self.stride,  # (Int)
                 "fmp_size": fmp_size,  # (List[int, int])
             }

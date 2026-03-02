@@ -40,6 +40,8 @@ def parse_args():
         default=False,
         help="evaluate model before training.",
     )
+
+    # 是否开启混合精度训练
     parser.add_argument(
         "--fp16",
         dest="fp16",
@@ -47,6 +49,8 @@ def parse_args():
         default=False,
         help="Adopting mix precision training.",
     )
+
+    # 可视化训练阶段的数据
     parser.add_argument(
         "--vis_tgt",
         action="store_true",
@@ -72,7 +76,7 @@ def parse_args():
     # Epoch
     # 训练最大轮次
     parser.add_argument("--max_epoch", default=300, type=int, help="max epoch.")
-    parser.add_argument("--wp_epoch", default=1, type=int, help="warmup epoch.")
+    parser.add_argument("--wp_epoch", default=1, type=int, help="warmup epoch.") # 设置前面n个epoch为warmup阶段，默认为1，用于调整学习率
     parser.add_argument(
         "--eval_epoch",
         default=10,
@@ -122,10 +126,11 @@ def parse_args():
     )
 
     # Dataset
-    parser.add_argument(
-        "--root", default="/Users/frank/code/ai/yolo_data", help="data root"
-    )  # 数据集根目录
-    # parser.add_argument("--root", default="D:/my code/yolo_data", help="data root") # 数据集根目录
+    # 数据集根目录
+    # parser.add_argument(
+    #     "--root", default="/Users/frank/code/ai/yolo_data", help="data root"
+    # )  
+    parser.add_argument("--root", default="D:/my code/yolo_data", help="data root") # 数据集根目录
     parser.add_argument(
         "-d",
         "--dataset",
@@ -140,6 +145,7 @@ def parse_args():
     )
 
     # Train trick
+    # 是否开启多尺度训练技巧：动态改变输入图像的尺寸，使模型能够检测不同大小的目标，多尺度训练让模型同时学会检测大小不同的目标。
     parser.add_argument(
         "-ms",
         "--multi_scale",
@@ -148,6 +154,8 @@ def parse_args():
         help="Multi scale",
     )
     parser.add_argument("--ema", action="store_true", default=False, help="Model EMA")
+
+    # 最小的目标框大小，训练阶段目标框大小小于该值的目标框将被过滤掉
     parser.add_argument(
         "--min_box_size",
         default=8.0,

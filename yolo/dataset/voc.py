@@ -357,10 +357,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='VOC-Dataset')
 
     # opt
-    parser.add_argument('--root', default='/Users/frank/code/ai/yolo_data',
-                        help='data root')
-    # parser.add_argument('--root', default='D:/my code/yolo_data',
+    # parser.add_argument('--root', default='/Users/frank/code/ai/yolo_data',
     #                     help='data root')
+    parser.add_argument('--root', default='D:/my code/yolo_data',
+                        help='data root')
     parser.add_argument('-size', '--img_size', default=640, type=int,
                         help='input image size.')
     parser.add_argument('--mosaic', default=None, type=float,
@@ -413,6 +413,7 @@ if __name__ == "__main__":
         image, target, deltas = dataset.pull_item(i)
         """
         dataset数据格式为（image, target）：
+        下面的坐标参数，都为经过了图像增强、变换处理后的坐标
         image.shape = [C, H, W]
         target = {
            'boxes':

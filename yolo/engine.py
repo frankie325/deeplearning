@@ -8,8 +8,12 @@
 import os
 from tqdm import tqdm
 import torch
+import time
+import numpy as np
 
+# ----------------- Extra Components -----------------
 from utils.misc import CollateFunc, build_dataloader
+from utils.vis_tools import vis_data
 
 # ----------------- Dataset Components -----------------
 from dataset.build import build_dataset, build_transform
@@ -166,11 +170,11 @@ class Yolov8Trainer(object):
         self.model_ema = None
 
     # 训练模型的主函数
-    def train(self, train_loader, val_loader):
+    def train(self, model):
         for epoch in tqdm(range(self.start_epoch, self.args.max_epoch)):
             # if self.args.distributed:
             #     self.train_loader.batch_sampler.sampler.set_epoch(epoch)
-            
+
             # 检查当前是否进入训练的第二阶段，在第二阶段中，会关闭Mosaic & Mixup增强
             if (
                 epoch >= (self.args.max_epoch - self.no_aug_epoch - 1)
@@ -189,13 +193,135 @@ class Yolov8Trainer(object):
                     torch.save(
                         {
                             "model": model.state_dict(),
-                            "mAP": round(self.evaluator.map * 100, 1),
+                            # "mAP": round(self.evaluator.map * 100, 1),
                             "optimizer": self.optimizer.state_dict(),
                             "epoch": self.epoch,
                             "args": self.args,
                         },
                         checkpoint_path,
                     )
+
+            # 训练模型一个epoch
+            self.epoch: int = epoch
+            self.train_one_epoch(model)
+
+    # 训练模型一个epoch的主函数
+    def train_one_epoch(self, model):
+        epoch_size = len(self.train_loader)  # 一批训练几个batch
+        img_size = self.args.img_size
+        t0 = time.time()
+        nw = epoch_size * self.args.wp_epoch  # 预热阶段的总迭代次数
+        accumulate = accumulate = max(1, round(64 / self.args.batch_size))
+
+        # 训练模型一个epoch
+        for iter_i, (images, targets) in tqdm(
+            enumerate(self.train_loader), leave=False
+        ):
+            ni = iter_i + self.epoch * epoch_size  # 当前总迭代次数
+            """
+            Warmup阶段：训练初期使用较小的学习率，逐步增加到正常学习率，避免初期梯度爆炸，使训练更稳定。
+            Warmup 阶段 (ni: 0 → nw)
+
+            bias学习率:    0.1 ────────→ lr0
+            其他学习率:    0.0 ────────→ lr0
+            momentum:          0.8 ────────→ 0.937
+            accumulate:    1   ────────→ 64 / batch_size
+            """
+            if ni <= nw:
+                xi = [0, nw]  # x interp
+                accumulate = max(
+                    1, np.interp(ni, xi, [1, 64 / self.args.batch_size]).round()
+                )
+                for j, x in enumerate(self.optimizer.param_groups):
+                    # 对于bias参数，其学习率从设定好的warmup_bias_lr降低至初始学习率lr0，
+                    # 其他参数的学习率则从0增加至初始学习率lr0，
+                    # 该策略参考YOLOv5 & v8项目
+                    x["lr"] = np.interp(
+                        ni,
+                        xi,
+                        [
+                            (
+                                self.warmup_dict["warmup_bias_lr"]
+                                if j == 0  # j==0时设置的是bias参数
+                                else 0.0
+                            ),
+                            x["initial_lr"]
+                            * self.lf(
+                                self.epoch
+                            ),  # 最终学习率 = 初始学习率 × 学习率因子
+                        ],
+                    )
+                    # 在Warmup阶段，优化器的momentum参数也会从设定好的warmup_momentum增加至指定的momentum
+                    if "momentum" in x:
+                        x["momentum"] = np.interp(
+                            ni,
+                            xi,
+                            [
+                                self.warmup_dict["warmup_momentum"],
+                                self.optimizer_dict["momentum"],
+                            ],
+                        )
+
+            # 将数据放置在指定的device上，并做归一化
+            images = images.to(self.device, non_blocking=True).float() / 255.0
+
+            # 多尺度训练技巧
+            if self.args.multi_scale:
+                pass
+                # images, targets, img_size = self.rescale_image_targets(
+                #     images,
+                #     targets,
+                #     self.model_cfg["stride"],
+                #     self.args.min_box_size,
+                #     self.model_cfg["multi_scale"],
+                # )
+            else:
+                targets = self.refine_targets(targets, self.args.min_box_size)
+
+            # 可视化训练阶段的数据和标签，以便查看数据是否有bug
+            if self.args.vis_tgt:
+                vis_data(images * 255, targets)
+
+            # 前向推理 & 计算损失
+            with torch.amp.autocast(device_type='cuda', enabled=self.args.fp16):
+                # 前向推理
+                """
+                输入图片，以及真实标签的格式
+                images: [B, C, H, W]
+                targets: 为列表形式 [target1, target2, ..., targetB]
+
+                target = {
+                   'boxes':
+                       [
+                          [x1, y1, x2, y2],  # 目标1的边界框
+                          [x1, y1, x2, y2],  # 目标2的边界框
+                          [x1, y1, x2, y2],  # 目标3的边界框
+                       ],
+                    'labels':
+                       [
+                          [0],  # 目标1的类别标签索引
+                          [2],  # 目标2的类别标签索引
+                          [3],  # 目标3的类别标签索引
+                       ],
+                    'orig_size': [height, width] #图形变化之前的宽高
+                }
+                """
+                outputs = model(images)  
+                """
+                 网络输出
+                 outputs = {
+                     "pred_obj": obj_pred,  # (torch.Tensor) [B, M=H*W, 1]
+                     "pred_cls": cls_pred,  # (torch.Tensor) [B, M, C]
+                     "pred_box": box_pred,  # (torch.Tensor) [B, M, 4]
+                     "stride": self.stride,  # (Int) 网络的步长（每个网格所占的size）
+                     "fmp_size": fmp_size,  # (List[int, int]) 输出特征图的尺寸
+                 }
+
+                """    
+                # 计算损失
+                loss_dict = self.criterion(
+                    outputs=outputs, targets=targets, epoch=self.epoch
+                )
     # 训练的第二阶段
     def check_second_stage(self):
         # 在第二阶段，关闭Mosaic和Mixup两个强大的数据增强
@@ -247,7 +373,22 @@ class Yolov8Trainer(object):
         )
         self.train_loader.dataset.transform = self.train_transform
 
+        # 清洗训练阶段的数据，滤除无效的bbox标签
+    def refine_targets(self, targets, min_box_size):
+        # rescale targets
+        for tgt in targets:
+            boxes = tgt["boxes"].clone()
+            labels = tgt["labels"].clone()
+            # refine tgt
+            tgt_boxes_wh = boxes[..., 2:] - boxes[..., :2]
+            min_tgt_size = torch.min(tgt_boxes_wh, dim=-1)[0]
+            keep = min_tgt_size >= min_box_size
 
+            tgt["boxes"] = boxes[keep]
+            tgt["labels"] = labels[keep]
+
+        return targets
+        
 class YoloxTrainer(object):
     pass
 
