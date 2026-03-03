@@ -254,11 +254,15 @@ class YOLOv1(nn.Module):
 
             # 网络输出
             outputs = {
-                "pred_obj": obj_pred,  # (torch.Tensor) [B, M, 1] 置信度预测
-                "pred_cls": cls_pred,  # (torch.Tensor) [B, M, C] 类别预测
+                "pred_obj": obj_pred,  # (torch.Tensor) [B, M, 1] 有无物体置信度预测
+                "pred_cls": cls_pred,  # (torch.Tensor) [B, M, C] 类别置信度预测
                 "pred_box": box_pred,  # (torch.Tensor) [B, M, 4] 位置参数预测
                 "stride": self.stride,  # (Int)
                 "fmp_size": fmp_size,  # (List[int, int])
             }
+
+            # print(f"YOLOV1置信度预测特征图形状：{obj_pred.shape}")
+            # print(f"YOLOV1类别预测特征图形状：{cls_pred.shape}")
+            # print(f"YOLOV1位置参数预测测特征图形状：{reg_pred.shape}")
 
             return outputs

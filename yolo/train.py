@@ -31,7 +31,7 @@ def parse_args():
     )
     parser.add_argument(
         "--save_folder",
-        default="weights/",
+        default="./yolo/weights/",
         type=str,
         help="path to save weight",
     )
@@ -130,12 +130,12 @@ def parse_args():
 
     # Dataset
     # 数据集根目录
-    parser.add_argument(
-        "--root", default="/Users/frank/code/ai/yolo_data", help="data root"
-    )
     # parser.add_argument(
-    #     "--root", default="D:/my code/yolo_data", help="data root"
+    #     "--root", default="/Users/frank/code/ai/yolo_data", help="data root"
     # )
+    parser.add_argument(
+        "--root", default="D:/my code/yolo_data", help="data root"
+    )
     parser.add_argument(
         "-d",
         "--dataset",
@@ -240,12 +240,12 @@ def train():
     world_size = 1
 
     # 如果args.cuda为True，则使用GPU来训练，否则使用CPU来训练（强烈不推荐）
-    # if args.cuda:
-    #     print("use GPU to train")
-    #     device = torch.device("cuda")
-    # else:
-    print("use CPU to train")
-    device = torch.device("cpu")
+    if args.cuda:
+        print("use GPU to train")
+        device = torch.device("cuda")
+    else:
+        print("use CPU to train")
+        device = torch.device("cpu")
 
     # 构建训练所用到的 Dataset & Model & Transform相关的config变量
     data_cfg = build_dataset_config(args)
@@ -256,6 +256,8 @@ def train():
     model, criterion = build_model(
         args, model_cfg, device, data_cfg["num_classes"], trainable=True
     )
+    # 监视模型的梯度和参数
+    wandb.watch(model, criterion, log="all")
 
     # 将模型切换至train模式
     model = model.to(device).train()
@@ -300,6 +302,8 @@ if __name__ == "__main__":
         entity="deeplearning_frank",
         # Set the wandb project where this run will be logged.
         project="yolo",
+        dir="./yolo",
+        
     )
 
     train()

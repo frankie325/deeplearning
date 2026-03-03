@@ -17,7 +17,7 @@ class YoloMatcher(object):
                              dict{'boxes':  (torch.Tensor) [N, 4], 一张图像中的N个目标边界框坐标
                                   'labels': (torch.Tensor) [N,], 一张图像中的N个目标类别标签
                                   ...}
-            target 格式为：下面的坐标参数，都为经过了图像增强、变换处理后的坐标，且进行了归一化处理                
+            target 格式为：下面的坐标参数，都为经过了图像增强、变换处理后的坐标               
             target = {
                    'boxes':
                        [

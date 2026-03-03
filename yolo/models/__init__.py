@@ -22,6 +22,7 @@ def build_model(
             args, model_cfg, device, num_classes, trainable, deploy
         )
 
+    # 如果是训练阶段，则为True
     if trainable:
         return model, criterion
     else:

@@ -100,3 +100,6 @@ practice/**/data/**
 practice/**/data/**
 practice/**/model/**
 yolo/**/model/**
+
+
+yolo/wandb/**

@@ -234,7 +234,7 @@ class Yolov8Trainer(object):
         for iter_i, (images, targets) in tqdm(
             enumerate(self.train_loader), leave=False
         ):
-            print("开始第{}批训练".format(iter_i + 1))
+            print(f"总共有{epoch_size}批，现在开始第{iter_i + 1}批训练")
             ni = iter_i + self.epoch * epoch_size  # 当前总迭代次数
             """
             Warmup阶段：训练初期使用较小的学习率，逐步增加到正常学习率，避免初期梯度爆炸，使训练更稳定。
@@ -346,13 +346,13 @@ class Yolov8Trainer(object):
                 losses *= images.shape[0]  # loss * bs
 
                 # 求多卡之间的平均loss，对于单卡，该函数没有作用
-                # loss_dict_reduced = distributed_utils.reduce_dict(loss_dict)
+                loss_dict_reduced = distributed_utils.reduce_dict(loss_dict)
 
                 # 参考YOLOv5 & v8项目，损失前面还要乘以分布式训练所用到的显卡数量，
                 # 因为在Torch的默认设置下，梯度会在多卡之间做平均，
                 # YOLOv5 & v8项目的一些技巧比较“非主流”，建议读者不要深究
                 # 对于单卡，该函数没有作用
-                # losses *= distributed_utils.get_world_size()
+                losses *= distributed_utils.get_world_size()
 
             # 计算梯度
             self.scaler.scale(losses).backward()
@@ -387,16 +387,16 @@ class Yolov8Trainer(object):
                 # log += '[lr: {:.6f}]'.format(cur_lr[2])
                 wandb.log({"Epoch": self.epoch + 1, "Iter": iter_i, "lr": cur_lr[2]})
                 # 打印模型的loss
-                # for k in loss_dict_reduced.keys():
-                # log += '[{}: {:.2f}]'.format(k, loss_dict_reduced[k])
-                # wandb.log({k: loss_dict_reduced[k]})
+                for k in loss_dict_reduced.keys():
+                    log += '[{}: {:.2f}]'.format(k, loss_dict_reduced[k])
+                    wandb.log({k: loss_dict_reduced[k] for k in loss_dict_reduced.keys()})
                 # 打印一些其他信息，比如当前迭代的耗时和图像尺寸
-                # log += '[time: {:.2f}]'.format(t1 - t0)
-                # log += '[size: {}]'.format(img_size)
+                log += '[time: {:.2f}]'.format(t1 - t0)
+                log += '[size: {}]'.format(img_size)
                 wandb.log({"time": t1 - t0, "size": img_size})
-                # print(log, flush=True)
+                print(log, flush=True)
 
-                t0 = time.time()
+                t0 = time.time() # 更新为下一个epoch的开始时间
 
         # 学习率更新
         self.lr_scheduler.step()
@@ -452,8 +452,8 @@ class Yolov8Trainer(object):
         )
         self.train_loader.dataset.transform = self.train_transform
 
-        # 清洗训练阶段的数据，滤除无效的bbox标签
 
+    # 清洗训练阶段的数据，滤除无效的bbox标签
     def refine_targets(self, targets, min_box_size):
         # rescale targets
         for tgt in targets:

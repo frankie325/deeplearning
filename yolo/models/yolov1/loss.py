@@ -48,8 +48,8 @@ class Criterion(object):
         fmp_size = outputs["fmp_size"]  # 输出特征图的尺寸
 
         # List[B, M, C] -> [B, M, C] -> [BM, C]
-        pred_obj = outputs["pred_obj"].view(-1)  # [BM,] 置信度预测
-        pred_cls = outputs["pred_cls"].view(-1, self.num_classes)  # [BM, C] 类别预测
+        pred_obj = outputs["pred_obj"].view(-1)  # [BM,] 有无物体置信度预测
+        pred_cls = outputs["pred_cls"].view(-1, self.num_classes)  # [BM, C] 类别置信度预测
         pred_box = outputs["pred_box"].view(-1, 4)  # [BM, 4] 位置参数预测
 
         # ------------------ 标签分配 ------------------
