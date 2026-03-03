@@ -24,6 +24,7 @@ yolov1_cfg = {
     'num_reg_head': 2,
     'head_depthwise': False,
     # loss weight
+    # 这三个参数是损失函数的权重：Loss = λobj * Loss_obj + λcls * Loss_cls + λbox * Loss_box
     'loss_obj_weight': 1.0,
     'loss_cls_weight': 1.0,
     'loss_box_weight': 5.0,

@@ -41,7 +41,7 @@ class CollateFunc(object):
     def __call__(self, batch):
         targets = []
         images = []
-        print(len(batch))
+        # print(len(batch))
         # 遍历batch中的每个样本，分离图像和标签
         for sample in batch:
             image = sample[0]   # 图像tensor，形状 [C, H, W]

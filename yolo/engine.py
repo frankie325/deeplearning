@@ -10,8 +10,10 @@ from tqdm import tqdm
 import torch
 import time
 import numpy as np
+import wandb
 
 # ----------------- Extra Components -----------------
+from utils import distributed_utils
 from utils.misc import CollateFunc, build_dataloader
 from utils.vis_tools import vis_data
 
@@ -41,17 +43,16 @@ class Yolov8Trainer(object):
         self.epoch = 0
         self.best_map = -1.0
         self.last_opt_step = 0
-        self.no_aug_epoch = args.no_aug_epoch
+        self.no_aug_epoch = args.no_aug_epoch  # 不使用数据增强的epoch数
         self.clip_grad = 10
         self.device = device
         self.criterion = criterion
         self.world_size = world_size
         self.heavy_eval = False
-        self.second_stage = False
 
         # 创建路径，用于保存模型的训练文件
         self.path_to_save = os.path.join(args.save_folder, args.dataset, args.model)
-
+        print(f"path_to_save: {self.path_to_save}")
         os.makedirs(self.path_to_save, exist_ok=True)
 
         # ---------------------------- YOLOv5和YOLOv8项目的超参数设置 ----------------------------
@@ -172,6 +173,7 @@ class Yolov8Trainer(object):
     # 训练模型的主函数
     def train(self, model):
         for epoch in tqdm(range(self.start_epoch, self.args.max_epoch)):
+            print("开始第{}轮训练".format(epoch + 1))
             # if self.args.distributed:
             #     self.train_loader.batch_sampler.sampler.set_epoch(epoch)
 
@@ -205,18 +207,34 @@ class Yolov8Trainer(object):
             self.epoch: int = epoch
             self.train_one_epoch(model)
 
+            # 在训练完毕后，会考虑是否要测试当前模型的性能
+            # 如果heavy_eval为True，则每个epoch后都进行测试
+            # if self.heavy_eval:
+            #     model_eval = model.module if self.args.distributed else model
+            #     self.eval(model_eval)
+            # # 如果heavy_eval为False，则只在特定epoch后去测试性能
+            # else:
+            #     model_eval = model.module if self.args.distributed else model
+            #     if (epoch % self.args.eval_epoch) == 0 or (
+            #         epoch == self.args.max_epoch - 1
+            #     ):
+            #         self.eval(model_eval)
+
     # 训练模型一个epoch的主函数
     def train_one_epoch(self, model):
         epoch_size = len(self.train_loader)  # 一批训练几个batch
         img_size = self.args.img_size
         t0 = time.time()
         nw = epoch_size * self.args.wp_epoch  # 预热阶段的总迭代次数
-        accumulate = accumulate = max(1, round(64 / self.args.batch_size))
+        accumulate = max(
+            1, round(64 / self.args.batch_size)
+        )  # 训练技巧：梯度累计（如 4 次迭代才更新一次参数）
 
         # 训练模型一个epoch
         for iter_i, (images, targets) in tqdm(
             enumerate(self.train_loader), leave=False
         ):
+            print("开始第{}批训练".format(iter_i + 1))
             ni = iter_i + self.epoch * epoch_size  # 当前总迭代次数
             """
             Warmup阶段：训练初期使用较小的学习率，逐步增加到正常学习率，避免初期梯度爆炸，使训练更稳定。
@@ -283,7 +301,7 @@ class Yolov8Trainer(object):
                 vis_data(images * 255, targets)
 
             # 前向推理 & 计算损失
-            with torch.amp.autocast(device_type='cuda', enabled=self.args.fp16):
+            with torch.amp.autocast(device_type="cuda", enabled=self.args.fp16):
                 # 前向推理
                 """
                 输入图片，以及真实标签的格式
@@ -306,7 +324,7 @@ class Yolov8Trainer(object):
                     'orig_size': [height, width] #图形变化之前的宽高
                 }
                 """
-                outputs = model(images)  
+                outputs = model(images)
                 """
                  网络输出
                  outputs = {
@@ -317,11 +335,72 @@ class Yolov8Trainer(object):
                      "fmp_size": fmp_size,  # (List[int, int]) 输出特征图的尺寸
                  }
 
-                """    
+                """
                 # 计算损失
                 loss_dict = self.criterion(
                     outputs=outputs, targets=targets, epoch=self.epoch
                 )
+
+                losses = loss_dict["losses"]
+                # 参考YOLOv5 & v8项目，损失前面要乘以batch size
+                losses *= images.shape[0]  # loss * bs
+
+                # 求多卡之间的平均loss，对于单卡，该函数没有作用
+                # loss_dict_reduced = distributed_utils.reduce_dict(loss_dict)
+
+                # 参考YOLOv5 & v8项目，损失前面还要乘以分布式训练所用到的显卡数量，
+                # 因为在Torch的默认设置下，梯度会在多卡之间做平均，
+                # YOLOv5 & v8项目的一些技巧比较“非主流”，建议读者不要深究
+                # 对于单卡，该函数没有作用
+                # losses *= distributed_utils.get_world_size()
+
+            # 计算梯度
+            self.scaler.scale(losses).backward()
+
+            # 优化模型的参数
+            if ni - self.last_opt_step >= accumulate:  # 判断是否达到梯度累积次数
+                # 如有必要，做梯度剪裁，避免梯度爆炸
+                if self.clip_grad > 0:
+                    self.scaler.unscale_(self.optimizer)  # 先反缩放梯度
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), max_norm=self.clip_grad
+                    )
+                # 梯度反向传播，更新模型的参数
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+                self.optimizer.zero_grad()
+                # 如果使用了EMA，则在反向传播之后，更新EMA中的模型参数
+                # if self.model_ema is not None:
+                #     self.model_ema.update(model)
+                # 记录本次更新权重的迭代位置
+                self.last_opt_step = ni
+
+            # 打印训练阶段的一些参数，以便读者在终端查看训练的各种输出
+            if distributed_utils.is_main_process() and iter_i % 10 == 0:
+                t1 = time.time()
+                cur_lr = [
+                    param_group["lr"] for param_group in self.optimizer.param_groups
+                ]
+                # 打印一些基本信息，如训练的epoch、iteration和学习率
+                log = "[Epoch: {}/{}]".format(self.epoch + 1, self.args.max_epoch)
+                # log += '[Iter: {}/{}]'.format(iter_i, epoch_size)
+                # log += '[lr: {:.6f}]'.format(cur_lr[2])
+                wandb.log({"Epoch": self.epoch + 1, "Iter": iter_i, "lr": cur_lr[2]})
+                # 打印模型的loss
+                # for k in loss_dict_reduced.keys():
+                # log += '[{}: {:.2f}]'.format(k, loss_dict_reduced[k])
+                # wandb.log({k: loss_dict_reduced[k]})
+                # 打印一些其他信息，比如当前迭代的耗时和图像尺寸
+                # log += '[time: {:.2f}]'.format(t1 - t0)
+                # log += '[size: {}]'.format(img_size)
+                wandb.log({"time": t1 - t0, "size": img_size})
+                # print(log, flush=True)
+
+                t0 = time.time()
+
+        # 学习率更新
+        self.lr_scheduler.step()
+
     # 训练的第二阶段
     def check_second_stage(self):
         # 在第二阶段，关闭Mosaic和Mixup两个强大的数据增强
@@ -374,6 +453,7 @@ class Yolov8Trainer(object):
         self.train_loader.dataset.transform = self.train_transform
 
         # 清洗训练阶段的数据，滤除无效的bbox标签
+
     def refine_targets(self, targets, min_box_size):
         # rescale targets
         for tgt in targets:
@@ -388,7 +468,8 @@ class Yolov8Trainer(object):
             tgt["labels"] = labels[keep]
 
         return targets
-        
+
+
 class YoloxTrainer(object):
     pass
 

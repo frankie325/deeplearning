@@ -112,6 +112,7 @@ class Criterion(object):
         loss_box = loss_box.sum() / num_fgs
 
         ## 计算总的损失，即上面三个损失的加权和
+        # Loss = λobj * Loss_obj + λcls * Loss_cls + λbox * Loss_box
         losses = (
             self.loss_obj_weight * loss_obj
             + self.loss_cls_weight * loss_cls

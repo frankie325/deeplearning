@@ -1,6 +1,7 @@
 import torch
 import argparse
 from torchsummary import summary
+import wandb
 
 # ----------------- Config Components -----------------
 from config import build_dataset_config, build_model_config, build_trans_config
@@ -76,7 +77,9 @@ def parse_args():
     # Epoch
     # 训练最大轮次
     parser.add_argument("--max_epoch", default=300, type=int, help="max epoch.")
-    parser.add_argument("--wp_epoch", default=1, type=int, help="warmup epoch.") # 设置前面n个epoch为warmup阶段，默认为1，用于调整学习率
+    parser.add_argument(
+        "--wp_epoch", default=1, type=int, help="warmup epoch."
+    )  # 设置前面n个epoch为warmup阶段，默认为1，用于调整学习率
     parser.add_argument(
         "--eval_epoch",
         default=10,
@@ -115,7 +118,7 @@ def parse_args():
         help="load pretrained weight",
     )
 
-    # resume从之前中断的地方继续训练模型 
+    # resume从之前中断的地方继续训练模型
     parser.add_argument(
         "-r",
         "--resume",
@@ -127,10 +130,12 @@ def parse_args():
 
     # Dataset
     # 数据集根目录
+    parser.add_argument(
+        "--root", default="/Users/frank/code/ai/yolo_data", help="data root"
+    )
     # parser.add_argument(
-    #     "--root", default="/Users/frank/code/ai/yolo_data", help="data root"
-    # )  
-    parser.add_argument("--root", default="D:/my code/yolo_data", help="data root") # 数据集根目录
+    #     "--root", default="D:/my code/yolo_data", help="data root"
+    # )
     parser.add_argument(
         "-d",
         "--dataset",
@@ -193,8 +198,40 @@ def parse_args():
     return parser.parse_args()
 
 
+def wandb_config_add_args(config, args):
+    config.model = args.model
+    config.img_size = args.img_size
+    config.num_workers = args.num_workers
+    config.eval_first = args.eval_first
+    config.use_fp16 = args.fp16
+    config.batch_size = args.batch_size
+    config.max_epoch = args.max_epoch
+    config.wp_epoch = args.wp_epoch
+    config.eval_epoch = args.eval_epoch
+    config.no_aug_epoch = args.no_aug_epoch
+    config.conf_thresh = args.conf_thresh
+    config.nms_thresh = args.nms_thresh
+    config.topk = args.topk
+    config.pretrained = args.pretrained
+    config.resume = args.resume
+    config.dataset = args.dataset
+    config.load_cache = args.load_cache
+    config.multi_scale = args.multi_scale
+    config.ema = args.ema
+    config.min_box_size = args.min_box_size
+    config.mosaic = args.mosaic
+    config.mixup = args.mixup
+    config.grad_accumulate = args.grad_accumulate
+    config.distributed = args.distributed
+    config.world_size = args.world_size
+    config.sybn = args.sybn
+    return config
+
+
 def train():
     args = parse_args()
+    wandb_config = wandb.config
+    wandb_config = wandb_config_add_args(wandb_config, args)
     # print(123)
     print("==============args================")
     print(args)
@@ -217,7 +254,7 @@ def train():
 
     # 构建YOLO模型.L
     model, criterion = build_model(
-        args, model_cfg, device, data_cfg["num_classes"], True
+        args, model_cfg, device, data_cfg["num_classes"], trainable=True
     )
 
     # 将模型切换至train模式
@@ -239,7 +276,30 @@ def train():
         world_size,
     )
 
+    # --------------------------------- Train: Start ---------------------------------
+    ## 如果args.eval_first为True，则在训练开始前，先测试模型的性能
+    # if args.eval_first and distributed_utils.is_main_process():
+    #     # to check whether the evaluator can work
+    #     model_eval = model_without_ddp
+    #     trainer.eval(model_eval)
+
+    ## 开始训练我们的模型
+    trainer.train(model)
+    # --------------------------------- Train: End ---------------------------------
+
+    # 训练完毕后，清空占用的GPU显存
+    del trainer
+    if args.cuda:
+        torch.cuda.empty_cache()
+
 
 if __name__ == "__main__":
+    # Start a new wandb run to track this script.
+    wandb.init(
+        # Set the wandb entity where your project will be logged (generally your team name).
+        entity="deeplearning_frank",
+        # Set the wandb project where this run will be logged.
+        project="yolo",
+    )
 
     train()
