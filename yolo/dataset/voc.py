@@ -126,7 +126,7 @@ class VOCDetection(data.Dataset):
         self.mixup_prob = trans_config['mixup_prob'] if trans_config else 0.0
         self.trans_config = trans_config
         # 截取前100张图片训练，测试代码完整流程
-        self.ids = self.ids[:100]
+        # self.ids = self.ids[:100]
         print('==============================')
         print('use Mosaic Augmentation: {}'.format(self.mosaic_prob))
         print('use Mixup Augmentation: {}'.format(self.mixup_prob))

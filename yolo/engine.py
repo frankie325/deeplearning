@@ -7,10 +7,13 @@
 
 import os
 from tqdm import tqdm
-import torch
 import time
 import numpy as np
 import wandb
+
+# ----------------- Torch Components -----------------
+import torch
+import torch.distributed as dist
 
 # ----------------- Extra Components -----------------
 from utils import distributed_utils
@@ -19,6 +22,9 @@ from utils.vis_tools import vis_data
 
 # ----------------- Dataset Components -----------------
 from dataset.build import build_dataset, build_transform
+
+# ----------------- Evaluator Components -----------------
+from evaluator.build import build_evluator
 
 # ----------------- Optimizer & LrScheduler Components -----------------
 from utils.solver.optimizer import build_yolo_optimizer
@@ -132,6 +138,9 @@ class Yolov8Trainer(object):
         #     break
 
         # ---------------------------- 构建测试模型性能的Evaluator类 ----------------------------
+        self.evaluator = build_evluator(
+            self.args, self.data_cfg, self.val_transform, self.device
+        )
 
         # ---------------------------- 构建梯度缩放器 ----------------------------
         self.scaler = torch.amp.GradScaler("cuda", enabled=self.args.fp16)
@@ -196,7 +205,7 @@ class Yolov8Trainer(object):
                     torch.save(
                         {
                             "model": model.state_dict(),
-                            # "mAP": round(self.evaluator.map * 100, 1),
+                            "mAP": round(self.evaluator.map * 100, 1),
                             "optimizer": self.optimizer.state_dict(),
                             "epoch": self.epoch,
                             "args": self.args,
@@ -210,16 +219,80 @@ class Yolov8Trainer(object):
 
             # 在训练完毕后，会考虑是否要测试当前模型的性能
             # 如果heavy_eval为True，则每个epoch后都进行测试
-            # if self.heavy_eval:
-            #     model_eval = model.module if self.args.distributed else model
-            #     self.eval(model_eval)
-            # # 如果heavy_eval为False，则只在特定epoch后去测试性能
-            # else:
-            #     model_eval = model.module if self.args.distributed else model
-            #     if (epoch % self.args.eval_epoch) == 0 or (
-            #         epoch == self.args.max_epoch - 1
-            #     ):
-            #         self.eval(model_eval)
+            if self.heavy_eval:
+                model_eval = model.module if self.args.distributed else model
+                self.eval(model_eval)
+            # 如果heavy_eval为False，则只在特定epoch后去测试性能
+            else:
+                model_eval = model.module if self.args.distributed else model
+                if (epoch % self.args.eval_epoch) == 0 or (
+                    epoch == self.args.max_epoch - 1
+                ):
+                    self.eval(model_eval)
+
+    # 测试模型的主函数
+    def eval(self, model):
+        # 如果启动了EMA，则使用保存在EMA中的模型参数来进行测试
+        # 否则，使用当前的模型参数进行测试
+        model_eval = model if self.model_ema is None else self.model_ema.ema
+
+        # 对于分布式训练，只在Rank0线程上进行测试
+        if distributed_utils.is_main_process():
+            # 如果Evaluator类为None，则只保存模型，不测试（无法测试）
+            if self.evaluator is None:
+                print("No evaluator ... save model and go on training.")
+                print("Saving state, epoch: {}".format(self.epoch + 1))
+                weight_name = "{}_no_eval.pth".format(self.args.model)
+                checkpoint_path = os.path.join(self.path_to_save, weight_name)
+                torch.save(
+                    {
+                        "model": model_eval.state_dict(),
+                        "mAP": -1.0,
+                        "optimizer": self.optimizer.state_dict(),
+                        "epoch": self.epoch,
+                        "args": self.args,
+                    },
+                    checkpoint_path,
+                )
+            # 如果Evaluator类不是None，则进行测试
+            else:
+                # print('Evaluating model ...')
+                # 将模型切换至torch要求的eval模式
+                model_eval.eval()
+                # 设置模型中的trainable为False，以便模型做前向推理（包括各种后处理）
+                model_eval.trainable = False
+
+                # 测试模型的性能
+                with torch.no_grad():
+                    self.evaluator.evaluate(model_eval)
+
+                # 只有当前的性能指标大于上一次的指标，才会保存模型权重
+                cur_map = self.evaluator.map
+                if cur_map > self.best_map:
+                    # update best-map
+                    self.best_map = cur_map
+                    # save model
+                    print("Saving state, epoch:", self.epoch + 1)
+                    weight_name = "{}_best.pth".format(self.args.model)
+                    checkpoint_path = os.path.join(self.path_to_save, weight_name)
+                    torch.save(
+                        {
+                            "model": model_eval.state_dict(),
+                            "mAP": round(self.best_map * 100, 1),
+                            "optimizer": self.optimizer.state_dict(),
+                            "epoch": self.epoch,
+                            "args": self.args,
+                        },
+                        checkpoint_path,
+                    )
+
+                # 将模型切换至torch要求的train模式，以便继续训练
+                model_eval.train()
+                model_eval.trainable = True
+
+        if self.args.distributed:
+            # wait for all processes to synchronize
+            dist.barrier()
 
     # 训练模型一个epoch的主函数
     def train_one_epoch(self, model):
@@ -389,15 +462,17 @@ class Yolov8Trainer(object):
                 wandb.log({"Epoch": self.epoch + 1, "Iter": iter_i, "lr": cur_lr[2]})
                 # 打印模型的loss
                 for k in loss_dict_reduced.keys():
-                    log += '[{}: {:.2f}]'.format(k, loss_dict_reduced[k])
-                    wandb.log({k: loss_dict_reduced[k] for k in loss_dict_reduced.keys()})
+                    log += "[{}: {:.2f}]".format(k, loss_dict_reduced[k])
+                    wandb.log(
+                        {k: loss_dict_reduced[k] for k in loss_dict_reduced.keys()}
+                    )
                 # 打印一些其他信息，比如当前迭代的耗时和图像尺寸
-                log += '[time: {:.2f}]'.format(t1 - t0)
-                log += '[size: {}]'.format(img_size)
+                log += "[time: {:.2f}]".format(t1 - t0)
+                log += "[size: {}]".format(img_size)
                 wandb.log({"time": t1 - t0, "size": img_size})
                 print(log, flush=True)
 
-                t0 = time.time() # 更新为下一个epoch的开始时间
+                t0 = time.time()  # 更新为下一个epoch的开始时间
 
         # 学习率更新
         self.lr_scheduler.step()
@@ -452,7 +527,6 @@ class Yolov8Trainer(object):
             is_train=True,
         )
         self.train_loader.dataset.transform = self.train_transform
-
 
     # 清洗训练阶段的数据，滤除无效的bbox标签
     def refine_targets(self, targets, min_box_size):

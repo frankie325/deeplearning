@@ -1,6 +1,6 @@
 import argparse
 import os
-
+import wandb
 from copy import deepcopy
 import torch
 
@@ -13,7 +13,7 @@ from dataset.build import build_transform
 
 # load some utils
 from utils.misc import load_weight
-from utils.misc import compute_flops
+# from utils.misc import compute_flops
 
 from config import build_dataset_config, build_model_config, build_trans_config
 from models import build_model
@@ -47,7 +47,7 @@ def parse_args():
     #                     help='data root')
     parser.add_argument('--root', default='D:/my code/yolo_data',
                         help='data root')
-    parser.add_argument('-d', '--dataset', default='coco',
+    parser.add_argument('-d', '--dataset', default='voc',
                         help='coco, voc.')
     parser.add_argument('--mosaic', default=None, type=float,
                         help='mosaic augmentation.')
@@ -72,6 +72,15 @@ def voc_test(model, data_dir, device, transform):
     evaluator.evaluate(model)
 
 if __name__ == '__main__':
+    # Start a new wandb run to track this script.
+    wandb.init(
+        # Set the wandb entity where your project will be logged (generally your team name).
+        entity="deeplearning_frank",
+        # Set the wandb project where this run will be logged.
+        project="yolo",
+        dir="./yolo",
+        
+    )
     args = parse_args()
     # 如果args.cuda为True，则使用GPU来推理，否则使用CPU来训练（可接受）
     if args.cuda:

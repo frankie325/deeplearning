@@ -77,9 +77,12 @@ def parse_args():
     # Epoch
     # 训练最大轮次
     parser.add_argument("--max_epoch", default=300, type=int, help="max epoch.")
+    # 设置前面n个epoch为warmup阶段，默认为1，用于调整学习率
     parser.add_argument(
         "--wp_epoch", default=1, type=int, help="warmup epoch."
-    )  # 设置前面n个epoch为warmup阶段，默认为1，用于调整学习率
+    )  
+
+    # 设置每隔n个epoch进行一次模型评估，然后保存最好的模型参数
     parser.add_argument(
         "--eval_epoch",
         default=10,
