@@ -17,7 +17,7 @@ class VOCAPIEvaluator:
         data_dir,
         device,
         transform,
-        set_type="test",
+        set_type="val",
         year="2007",
         display=False,
     ):
