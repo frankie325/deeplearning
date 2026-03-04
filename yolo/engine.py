@@ -49,6 +49,7 @@ class Yolov8Trainer(object):
         self.criterion = criterion
         self.world_size = world_size
         self.heavy_eval = False
+        self.second_stage = False
 
         # 创建路径，用于保存模型的训练文件
         self.path_to_save = os.path.join(args.save_folder, args.dataset, args.model)
