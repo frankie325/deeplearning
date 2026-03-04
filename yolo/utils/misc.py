@@ -114,11 +114,13 @@ def load_weight(model, path_to_ckpt, fuse_cbn=False):
     if path_to_ckpt is None:
         print('no weight file ...')
     else:
-        checkpoint = torch.load(path_to_ckpt, map_location='cpu')
+        # 添加 weights_only=False 参数以加载完整checkpoint
+        # 如果只加载模型权重(weights_only=True)，则无法读取epoch和mAP等信息
+        checkpoint = torch.load(path_to_ckpt, map_location='cpu', weights_only=False)
         print('--------------------------------------')
         print('Best model infor:')
         print('Epoch: {}'.format(checkpoint["epoch"]))
-        print('mAP: {}'.format(checkpoint["mAP"]))
+        # print('mAP: {}'.format(checkpoint["mAP"]))
         print('--------------------------------------')
         checkpoint_state_dict = checkpoint["model"]
         model.load_state_dict(checkpoint_state_dict)
