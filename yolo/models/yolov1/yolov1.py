@@ -188,7 +188,7 @@ class YOLOv1(nn.Module):
             labels: (numpy.array) -> [N,]
         """
         # 将得分最高的类别作为预测的类别标签
-        labels = np.argmax(scores, axis=1)  # 找出置信度最高的类别索引 （169，）
+        labels = np.argmax(scores, axis=1)  # 找出置信度最高的类别索引 （13*13，）
 
         # 使用高级索引获取每个网格最高类别的置信度值
         """
@@ -196,6 +196,8 @@ class YOLOv1(nn.Module):
         labels              # [1, 2, 0]
         索引展开：组合成坐标对
         scores = [scores[0, 1], scores[1, 2], scores[2, 0]]
+
+        scores存储的是网格的是最高类别的置信度值
         """
         scores = scores[(np.arange(scores.shape[0]), labels)]  # （169，）
 
@@ -220,10 +222,17 @@ class YOLOv1(nn.Module):
             scores, labels, bboxes, self.nms_thresh, self.num_classes, False
         )
 
+        """
+        经过nms后筛选出的输出结果形状
+        bboxes: (numpy.array) -> [N, 4] 每个边界框的两个坐标 x1, y1, x2, y2 
+        score:  (numpy.array) -> [N,]   每个边界框的最高类别置信度
+        labels: (numpy.array) -> [N,]   每个边界框的类别索引
+        """
         return bboxes, scores, labels
 
     def forward(self, x):
         if not self.trainable:
+        # 验证阶段进行推理
             return self.inference(x)
         else:
             # 主干网络
