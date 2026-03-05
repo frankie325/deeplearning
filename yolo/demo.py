@@ -59,7 +59,7 @@ def parse_args():
     )
     parser.add_argument(
         "--path_to_save",
-        default="det_results/demos/",
+        default="./yolo/det_results/demos/",
         type=str,
         help="The path to save the detection results",
     )
@@ -214,11 +214,16 @@ def detect(args, model, device, transform, vis_thresh, mode="image"):
     # ------------------------- Video ---------------------------
     elif mode == "video":
         video = cv2.VideoCapture(args.path_to_vid)
+        # fourcc = cv2.VideoWriter_fourcc(*"MJPG")  # 兼容性最好
+        # fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # 需要H.264编码器
         fourcc = cv2.VideoWriter_fourcc(*"XVID")
+        # print("fourcc", fourcc)
+
         save_size = (640, 480)
         cur_time = time.strftime(
             "%Y-%m-%d-%H-%M-%S", time.localtime(time.time())
         )
+        # 使用.avi扩展名（对应MJPG编码）
         save_video_name = os.path.join(save_path, cur_time + ".avi")
         fps = 15.0
         out = cv2.VideoWriter(save_video_name, fourcc, fps, save_size)
@@ -227,7 +232,6 @@ def detect(args, model, device, transform, vis_thresh, mode="image"):
 
         while True:
             ret, frame = video.read()
-
             if ret:
                 # ------------------------- Detection ---------------------------
                 orig_h, orig_w, _ = frame.shape
