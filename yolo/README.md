@@ -160,10 +160,10 @@ python yolo/test.py -m yolov1 --weight model.pth -vt 0.5 --show
 **使用示例：**
 ```bash
 # 图片检测
-python yolo/demo.py -m yolov1 --cuda --weight model.pth --mode image --show
+python ./yolo/demo.py --cuda --weight ./yolo/weights/voc/yolov1/yolov1_best.pth --num_classes 20 --mode video --path_to_img ./yolo/dataset/demo/videos --show 
 
 # 视频检测
-python yolo/demo.py -m yolov1 --cuda --weight model.pth --mode video --show
+ python ./yolo/demo.py --cuda --weight ./yolo/weights/voc/yolov1/yolov1_best.pth --num_classes 20 --mode video --path_to_vid ./yolo/dataset/demo/videos/000006.mp4 --show 
 
 # 摄像头实时检测
 python yolo/demo.py -m yolov1 --cuda --weight model.pth --mode camera --show
