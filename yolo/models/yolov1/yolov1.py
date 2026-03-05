@@ -197,7 +197,7 @@ class YOLOv1(nn.Module):
         索引展开：组合成坐标对
         scores = [scores[0, 1], scores[1, 2], scores[2, 0]]
 
-        scores存储的是网格的是最高类别的置信度值
+        scores存储的是网格的最高类别的置信度值
         """
         scores = scores[(np.arange(scores.shape[0]), labels)]  # （169，）
 

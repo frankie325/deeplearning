@@ -3,6 +3,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from dataset.coco import coco_class_index, coco_class_labels
+from dataset.voc import voc_class_index, VOC_CLASSES
 
 
 # -------------------------- For Detection Task --------------------------
@@ -26,8 +27,10 @@ def visualize(img, bboxes, scores, labels, class_colors, vis_thresh=0.3):
     for i, bbox in enumerate(bboxes):
         if scores[i] > vis_thresh:
             cls_color = class_colors[int(labels[i])]
-            cls_id = coco_class_index[int(labels[i])]
-            mess = '%s: %.2f' % (coco_class_labels[cls_id], scores[i])
+            # cls_id = coco_class_index[int(labels[i])]
+            # mess = '%s: %.2f' % (coco_class_labels[cls_id], scores[i])
+            cls_id = voc_class_index[int(labels[i])]
+            mess = '%s: %.2f' % (VOC_CLASSES[cls_id], scores[i])
             img = plot_bbox_labels(img, bbox, mess, cls_color, test_scale=ts)
 
     return img
