@@ -103,3 +103,5 @@ yolo/**/model/**
 
 
 yolo/wandb/**
+yolo/det_results/**
+yolo/weights/**
